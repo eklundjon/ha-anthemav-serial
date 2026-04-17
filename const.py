@@ -10,6 +10,7 @@ CMD_TERMINATOR = "\n"
 # Zone identifiers
 ZONE_MAIN = 1
 ZONE_2 = 2
+ZONE_3 = 3
 
 # Commands
 def cmd_power(zone: int, on: bool) -> str:

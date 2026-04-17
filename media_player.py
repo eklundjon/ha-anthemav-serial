@@ -20,6 +20,7 @@ from .const import (
     VOLUME_MAX,
     VOLUME_MIN,
     ZONE_2,
+    ZONE_3,
     ZONE_MAIN,
     cmd_mute,
     cmd_power,
@@ -38,6 +39,7 @@ _LOGGER = logging.getLogger(__name__)
 ZONE_NAMES: dict[int, str] = {
     ZONE_MAIN: "Main",
     ZONE_2: "Zone 2",
+    ZONE_3: "Zone 3",
 }
 
 
@@ -56,7 +58,7 @@ async def async_setup_entry(
 ) -> None:
     client: AnthemClient = hass.data[DOMAIN][entry.entry_id]
 
-    entities = [AnthemZoneEntity(client, zone, entry) for zone in (ZONE_MAIN, ZONE_2)]
+    entities = [AnthemZoneEntity(client, zone, entry) for zone in (ZONE_MAIN, ZONE_2, ZONE_3)]
     zone_map = {e.zone: e for e in entities}
 
     def on_message(message: str) -> None:
@@ -129,8 +131,8 @@ class AnthemZoneEntity(MediaPlayerEntity):
             self._attr_available = True
             changed = True
 
-        # Volume: P{z}VM{db}  (e.g. "P1VM-35.0")
-        if m := re.match(rf"P{z}VM([+-]?\d+\.\d+)", message):
+        # Volume: P{z}VM{db} (zone 1, e.g. "P1VM-35.0") or P{z}V{db} (zones 2/3, e.g. "P2V-15.0")
+        if m := re.match(rf"P{z}VM?([+-]?\d+\.\d+)$", message):
             db = float(m.group(1))
             self._attr_volume_level = (db - VOLUME_MIN) / (VOLUME_MAX - VOLUME_MIN)
             changed = True
