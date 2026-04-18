@@ -116,7 +116,7 @@ class AnthemZoneEntity(MediaPlayerEntity):
         # Sorted longest-suffix-first so e.g. "DF" is tried before "D".
         self._extra_attrs: dict[str, Any] = {}
         self._extra_attr_parsers: list[tuple[re.Pattern[str], str, dict[str, str] | None, bool]] = [
-            (re.compile(rf"P{zone}{re.escape(suffix)}(.+)$"), name, enum_map, src_prefix)
+            (re.compile(rf"P{zone}{re.escape(suffix)}(.*)$"), name, enum_map, src_prefix)
             for name, suffix, enum_map, src_prefix in sorted(ZONE_EXTRA_ATTRS, key=lambda x: -len(x[1]))
         ]
 
@@ -129,8 +129,8 @@ class AnthemZoneEntity(MediaPlayerEntity):
         """Send extra attribute queries in batched stacks after a short delay."""
         await asyncio.sleep(2)
         suffixes = [suffix for _, suffix, _, _ in ZONE_EXTRA_ATTRS]
-        for i in range(0, len(suffixes), 10):
-            batch = ";".join(f"P{self.zone}{s}?" for s in suffixes[i:i + 10])
+        for i in range(0, len(suffixes), 5):
+            batch = ";".join(f"P{self.zone}{s}?" for s in suffixes[i:i + 5])
             await self._client.send(batch)
 
     def handle_message(self, message: str) -> None:
@@ -145,6 +145,10 @@ class AnthemZoneEntity(MediaPlayerEntity):
             )
             self._attr_available = True
             changed = True
+            if m.group(1) == "1" and self.hass:
+                self.hass.async_create_task(
+                    self._client.send(f"P{z}?")
+                )
 
         # Volume: P{z}VM{db} (zone 1, e.g. "P1VM-35.0") or P{z}V{db} (zones 2/3, e.g. "P2V-15.0")
         if m := re.match(rf"P{z}VM?([+-]?\d+\.\d+)$", message):
@@ -174,9 +178,13 @@ class AnthemZoneEntity(MediaPlayerEntity):
         # Extra attributes
         for pattern, attr_name, enum_map, src_prefix in self._extra_attr_parsers:
             if m := pattern.match(message):
-                raw = m.group(1)
-                if src_prefix:
+                raw = m.group(1).strip()
+                if src_prefix and raw:
                     raw = raw[1:]  # strip leading source-index char
+                if not raw:
+                    # Empty payload — device acknowledged query with no data (e.g. P1Q)
+                    changed = True
+                    break
                 if enum_map is not None:
                     self._extra_attrs[attr_name] = enum_map.get(raw, raw)
                 else:
@@ -189,6 +197,8 @@ class AnthemZoneEntity(MediaPlayerEntity):
 
         if changed and self.hass:
             self.async_write_ha_state()
+        elif not changed:
+            _LOGGER.warning("Zone %s: unrecognized message %r", self.zone, message)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

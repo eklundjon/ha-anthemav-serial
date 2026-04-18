@@ -151,15 +151,19 @@ ZONE_EXTRA_ATTRS: list[tuple[str, str, dict[str, str] | None, bool]] = [
     ("balance_surround",         "LR",  None, False),
     ("balance_back",             "LB",  None, False),
     # Bass (dB)  (source-independent)
-    ("bass",                     "BM",  None, False),
+    ("bass",                     "BM",  None, False),  # zone 1
+    ("bass",                     "B",   None, False),  # zones 2/3
     ("bass_front",               "BF",  None, False),
     ("bass_center",              "BC",  None, False),
     ("bass_surround",            "BR",  None, False),
     ("bass_rear",                "BB",  None, False),
     # Treble (dB)  (source-independent)
-    ("treble",                   "TM",  None, False),
+    ("treble",                   "TM",  None, False),  # zone 1
+    ("treble",                   "T",   None, False),  # zones 2/3
     ("treble_front",             "TF",  None, False),
     ("treble_center",            "TC",  None, False),
     ("treble_surround",          "TR",  None, False),
     ("treble_rear",              "TB",  None, False),
+    # Balance (dB)  (source-independent)
+    ("balance",                  "L",   None, False),  # zones 2/3
 ]
