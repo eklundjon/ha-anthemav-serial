@@ -167,3 +167,29 @@ ZONE_EXTRA_ATTRS: list[tuple[str, str, dict[str, str] | None, bool]] = [
     # Balance (dB)  (source-independent)
     ("balance",                  "L",   None, False),  # zones 2/3
 ]
+
+# Suffixes that are only valid to query on zone 1 (zones 2/3 return Invalid Command
+# or Parameter Out-of-range).  Parsers still handle push messages from any zone.
+ZONE_1_ONLY_QUERY_SUFFIXES: frozenset[str] = frozenset({
+    # Decoder / AC3
+    "D", "DF", "DS", "A", "AD",
+    # Compression (zone 1 DSP only)
+    "C",
+    # FX modes
+    "E", "EF", "EE", "ES", "EU", "ET", "EW", "EX", "EY", "ED",
+    "EMP", "EMC", "EMD", "EMG", "ER", "EN",
+    # Volume trims
+    "VF", "VC", "VR", "VB", "VS", "VL",
+    # Balance (zone 1 variants)
+    "LM", "LF", "LR", "LB",
+    # Bass (zone 1 variants)
+    "BM", "BF", "BC", "BR", "BB",
+    # Treble (zone 1 variants)
+    "TM", "TF", "TC", "TR", "TB",
+})
+
+# Suffixes only valid for zones 2/3 (zone 1 uses the longer-suffix variants)
+ZONE_23_ONLY_QUERY_SUFFIXES: frozenset[str] = frozenset({"B", "T", "L"})
+
+# Suffixes not queryable on any zone (write-only or push-only)
+NON_QUERYABLE_SUFFIXES: frozenset[str] = frozenset({"Z"})

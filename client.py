@@ -25,6 +25,7 @@ class AnthemClient:
         self._lock = asyncio.Lock()
         self._listen_task: asyncio.Task | None = None
         self._running = False
+        self.last_command: str = ""
 
     @property
     def connected(self) -> bool:
@@ -65,6 +66,7 @@ class AnthemClient:
                 await self.connect()
             self._writer.write((command + "\n").encode())
             await self._writer.drain()
+            self.last_command = command
             _LOGGER.debug("Sent: %s", command)
 
     async def _listen(self) -> None:

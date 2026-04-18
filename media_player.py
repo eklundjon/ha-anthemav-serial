@@ -9,6 +9,7 @@ from homeassistant.components.media_player import (
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
     MediaPlayerState,
+    MediaType,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -18,9 +19,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .client import AnthemClient
 from .const import (
     DOMAIN,
+    NON_QUERYABLE_SUFFIXES,
     SOURCES,
     VOLUME_MAX,
     VOLUME_MIN,
+    ZONE_1_ONLY_QUERY_SUFFIXES,
+    ZONE_23_ONLY_QUERY_SUFFIXES,
     ZONE_2,
     ZONE_3,
     ZONE_EXTRA_ATTRS,
@@ -59,25 +63,48 @@ async def async_setup_entry(
 ) -> None:
     client: AnthemClient = hass.data[DOMAIN][entry.entry_id]
 
-    entities = [AnthemZoneEntity(client, zone, entry) for zone in (ZONE_MAIN, ZONE_2, ZONE_3)]
-    zone_map = {e.zone: e for e in entities}
+    zone_entities = [AnthemZoneEntity(client, zone, entry) for zone in (ZONE_MAIN, ZONE_2, ZONE_3)]
+    zone_map = {e.zone: e for e in zone_entities}
+
+    tuner = AnthemTunerEntity(client, entry)
+    all_entities = [*zone_entities, tuner]
 
     def on_message(message: str) -> None:
         _LOGGER.debug("RX: %r", message)
         for zone, entity in zone_map.items():
             if message.startswith(f"P{zone}"):
                 entity.handle_message(message)
-                break
+                tuner.notify_zone_source(zone, entity._source_id)
+                return
+        if message.startswith("H"):
+            _LOGGER.debug("Headphone message (entity disabled): %r", message)
+            return
+        if message.startswith("TAT") or message.startswith("TFT"):
+            tuner.handle_message(message)
+            return
+        if message.startswith("P4"):
+            _LOGGER.debug("Zone 4 (rec) message ignored: %r", message)
+            return
+        if re.match(r"^E\d+$", message):
+            _LOGGER.debug("Device error code: %s", message)
+            return
+        if message in ("Main Off", "Zone2 Off", "Zone3 Off", "Unit Off"):
+            _LOGGER.debug("Device status: %s", message)
+            return
+        if message in ("Invalid Command", "Parameter Out-of-range"):
+            _LOGGER.warning("Device returned %r (last sent: %r)", message, client.last_command)
+            return
+        _LOGGER.warning("Unrouted message: %r", message)
 
     def on_connection_lost() -> None:
         _LOGGER.warning("Lost connection to Anthem device at %s", client.host)
-        for entity in entities:
+        for entity in all_entities:
             entity.mark_unavailable()
 
     client._on_message = on_message
     client._on_connection_lost = on_connection_lost
 
-    async_add_entities(entities)
+    async_add_entities(all_entities)
 
 
 class AnthemZoneEntity(MediaPlayerEntity):
@@ -106,6 +133,7 @@ class AnthemZoneEntity(MediaPlayerEntity):
         self._attr_volume_level: float | None = None
         self._attr_is_volume_muted: bool | None = None
         self._attr_source: str | None = None
+        self._source_id: str | None = None
 
         # Source maps built from options; rebuilt on entry reload.
         self._sources = _effective_sources(entry)
@@ -126,12 +154,26 @@ class AnthemZoneEntity(MediaPlayerEntity):
         self.hass.async_create_task(self._async_query_extra_attrs())
 
     async def _async_query_extra_attrs(self) -> None:
-        """Send extra attribute queries in batched stacks after a short delay."""
-        await asyncio.sleep(2)
-        suffixes = [suffix for _, suffix, _, _ in ZONE_EXTRA_ATTRS]
+        """Send extra attribute queries in batched stacks after a staggered delay.
+
+        Each zone waits zone*2 seconds so all three don't flood the device at once.
+        The device's 32-byte incoming buffer overflows if multiple zones query
+        simultaneously.
+        """
+        await asyncio.sleep(self.zone * 2)
+        if self._attr_state != MediaPlayerState.ON:
+            _LOGGER.debug("Zone %s is off — skipping extra attr queries", self.zone)
+            return
+        suffixes = [
+            suffix for _, suffix, _, _ in ZONE_EXTRA_ATTRS
+            if suffix not in NON_QUERYABLE_SUFFIXES
+            and (self.zone == ZONE_MAIN or suffix not in ZONE_1_ONLY_QUERY_SUFFIXES)
+            and (self.zone != ZONE_MAIN or suffix not in ZONE_23_ONLY_QUERY_SUFFIXES)
+        ]
         for i in range(0, len(suffixes), 5):
             batch = ";".join(f"P{self.zone}{s}?" for s in suffixes[i:i + 5])
             await self._client.send(batch)
+            await asyncio.sleep(0.5)
 
     def handle_message(self, message: str) -> None:
         """Parse a push status message and update entity state."""
@@ -146,9 +188,8 @@ class AnthemZoneEntity(MediaPlayerEntity):
             self._attr_available = True
             changed = True
             if m.group(1) == "1" and self.hass:
-                self.hass.async_create_task(
-                    self._client.send(f"P{z}?")
-                )
+                self.hass.async_create_task(self._client.send(f"P{z}?"))
+                self.hass.async_create_task(self._async_query_extra_attrs())
 
         # Volume: P{z}VM{db} (zone 1, e.g. "P1VM-35.0") or P{z}V{db} (zones 2/3, e.g. "P2V-15.0")
         if m := re.match(rf"P{z}VM?([+-]?\d+\.\d+)$", message):
@@ -163,13 +204,15 @@ class AnthemZoneEntity(MediaPlayerEntity):
 
         # Source: P{z}S{id}  (id is 0-9 or c-j)
         if m := re.match(rf"P{z}S([0-9c-j])$", message):
-            self._attr_source = self._sources.get(m.group(1))
+            self._source_id = m.group(1)
+            self._attr_source = self._sources.get(self._source_id)
             changed = True
 
         # Combined zone status: P{z}S{source}V{vol}M{mute}[...] (response to P{z}?)
         # Zone 1 appends extra fields (e.g. D7 for decoder), so no $ anchor.
         if m := re.match(rf"P{z}S([0-9c-j])V([+-]?\d+\.\d+)M([01])", message):
-            self._attr_source = self._sources.get(m.group(1))
+            self._source_id = m.group(1)
+            self._attr_source = self._sources.get(self._source_id)
             db = float(m.group(2))
             self._attr_volume_level = (db - VOLUME_MIN) / (VOLUME_MAX - VOLUME_MIN)
             self._attr_is_volume_muted = m.group(3) == "1"
@@ -234,3 +277,78 @@ class AnthemZoneEntity(MediaPlayerEntity):
             return
         _LOGGER.debug("Zone %s: selecting source %r (id=%s)", self.zone, source, source_id)
         await self._client.send(cmd_source(self.zone, source_id))
+
+
+
+_TUNER_SOURCE_ID = "4"
+
+
+class AnthemTunerEntity(MediaPlayerEntity):
+    """Built-in tuner — on when any zone has tuner selected as source."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Tuner"
+    _attr_supported_features = (
+        MediaPlayerEntityFeature.NEXT_TRACK
+        | MediaPlayerEntityFeature.PREVIOUS_TRACK
+    )
+    _attr_media_content_type = MediaType.MUSIC
+
+    def __init__(self, client: AnthemClient, entry: ConfigEntry) -> None:
+        self._client = client
+        device_id = f"{client.host}:{client.port}"
+        self._attr_unique_id = f"{device_id}_tuner"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, device_id)},
+            name=entry.title,
+            manufacturer="Anthem",
+            model="AVM50",
+        )
+        self._frequency: str | None = None
+        self._zones_on_tuner: set[int] = set()
+        self._attr_state = MediaPlayerState.IDLE
+
+    def notify_zone_source(self, zone: int, source_id: str | None) -> None:
+        """Called by on_message whenever a zone's source may have changed."""
+        if source_id == _TUNER_SOURCE_ID:
+            self._zones_on_tuner.add(zone)
+        else:
+            self._zones_on_tuner.discard(zone)
+        new_state = MediaPlayerState.ON if self._zones_on_tuner else MediaPlayerState.IDLE
+        if new_state != self._attr_state:
+            self._attr_state = new_state
+            if self.hass:
+                self.async_write_ha_state()
+
+    @property
+    def media_title(self) -> str | None:
+        return self._frequency
+
+    async def async_added_to_hass(self) -> None:
+        pass  # tuner frequency arrives as push when a zone selects tuner source
+
+    def handle_message(self, message: str) -> None:
+        # AM: TAT 530  FM: TFT 87.5  (device includes a space before the value)
+        if m := re.match(r"TAT\s*(\d+)$", message):
+            self._frequency = f"AM {m.group(1)} kHz"
+            self._attr_available = True
+        elif m := re.match(r"TFT\s*([\d.]+)$", message):
+            self._frequency = f"FM {m.group(1)} MHz"
+            self._attr_available = True
+        else:
+            _LOGGER.warning("Tuner: unrecognized message %r", message)
+            return
+
+        if self.hass:
+            self.async_write_ha_state()
+
+    def mark_unavailable(self) -> None:
+        self._attr_available = False
+        if self.hass:
+            self.async_write_ha_state()
+
+    async def async_media_next_track(self) -> None:
+        await self._client.send("T+")
+
+    async def async_media_previous_track(self) -> None:
+        await self._client.send("T-")
