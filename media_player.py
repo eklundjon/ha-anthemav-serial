@@ -42,11 +42,13 @@ ZONE_NAMES: dict[int, str] = {
 }
 
 
-def _effective_sources(entry: ConfigEntry) -> dict[int, str]:
-    """Return source index → name, with any user-defined renames applied."""
+def _effective_sources(entry: ConfigEntry) -> dict[str, str]:
+    """Return source index → name, excluding hidden sources."""
+    hidden = set(entry.options.get("hidden_sources", []))
     return {
         idx: entry.options.get(f"source_{idx}", default_name)
         for idx, default_name in SOURCES.items()
+        if idx not in hidden
     }
 
 

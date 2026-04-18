@@ -7,6 +7,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import callback
+from homeassistant.helpers import selector
 
 from .client import AnthemClient
 from .const import DEFAULT_NAME, DEFAULT_PORT, DOMAIN, SOURCES
@@ -19,11 +20,22 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
-def _options_schema(current_names: dict[int, str]) -> vol.Schema:
+def _options_schema(current_names: dict[str, str], hidden: list[str]) -> vol.Schema:
     return vol.Schema(
         {
-            vol.Optional(f"source_{idx}", default=current_names[idx]): str
-            for idx in sorted(SOURCES)
+            **{
+                vol.Optional(f"source_{idx}", default=current_names[idx]): str
+                for idx in sorted(SOURCES)
+            },
+            vol.Optional("hidden_sources", default=hidden): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        {"value": idx, "label": current_names[idx]}
+                        for idx in sorted(SOURCES)
+                    ],
+                    multiple=True,
+                )
+            ),
         }
     )
 
@@ -84,8 +96,9 @@ class AnthemSerialOptionsFlow(OptionsFlow):
             idx: self.config_entry.options.get(f"source_{idx}", default_name)
             for idx, default_name in SOURCES.items()
         }
+        hidden = self.config_entry.options.get("hidden_sources", [])
 
         return self.async_show_form(
             step_id="init",
-            data_schema=_options_schema(current_names),
+            data_schema=_options_schema(current_names, hidden),
         )
