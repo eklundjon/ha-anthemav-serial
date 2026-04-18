@@ -129,6 +129,9 @@ class AnthemZoneEntity(MediaPlayerEntity):
             manufacturer="Anthem",
             model="AVM50",
         )
+        self._vol_min: float = entry.options.get(f"zone{zone}_vol_min", VOLUME_MIN)
+        self._vol_max: float = entry.options.get(f"zone{zone}_vol_max", VOLUME_MAX)
+
         self._attr_state: MediaPlayerState | None = None
         self._attr_volume_level: float | None = None
         self._attr_is_volume_muted: bool | None = None
@@ -194,7 +197,7 @@ class AnthemZoneEntity(MediaPlayerEntity):
         # Volume: P{z}VM{db} (zone 1, e.g. "P1VM-35.0") or P{z}V{db} (zones 2/3, e.g. "P2V-15.0")
         if m := re.match(rf"P{z}VM?([+-]?\d+\.\d+)$", message):
             db = float(m.group(1))
-            self._attr_volume_level = (db - VOLUME_MIN) / (VOLUME_MAX - VOLUME_MIN)
+            self._attr_volume_level = max(0.0, min(1.0, (db - self._vol_min) / (self._vol_max - self._vol_min)))
             changed = True
 
         # Mute: P{z}M{0|1}
@@ -214,7 +217,7 @@ class AnthemZoneEntity(MediaPlayerEntity):
             self._source_id = m.group(1)
             self._attr_source = self._sources.get(self._source_id)
             db = float(m.group(2))
-            self._attr_volume_level = (db - VOLUME_MIN) / (VOLUME_MAX - VOLUME_MIN)
+            self._attr_volume_level = max(0.0, min(1.0, (db - self._vol_min) / (self._vol_max - self._vol_min)))
             self._attr_is_volume_muted = m.group(3) == "1"
             changed = True
 
@@ -261,7 +264,7 @@ class AnthemZoneEntity(MediaPlayerEntity):
         await self._client.send(cmd_power(self.zone, False))
 
     async def async_set_volume_level(self, volume: float) -> None:
-        db = volume * (VOLUME_MAX - VOLUME_MIN) + VOLUME_MIN
+        db = volume * (self._vol_max - self._vol_min) + self._vol_min
         await self._client.send(cmd_volume(self.zone, db))
 
     async def async_mute_volume(self, mute: bool) -> None:

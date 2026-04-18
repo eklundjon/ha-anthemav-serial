@@ -10,7 +10,17 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .client import AnthemClient
-from .const import DEFAULT_NAME, DEFAULT_PORT, DOMAIN, SOURCES
+from .const import DEFAULT_NAME, DEFAULT_PORT, DOMAIN, SOURCES, VOLUME_MAX, VOLUME_MIN
+
+_VOL_SELECTOR = selector.NumberSelector(
+    selector.NumberSelectorConfig(
+        min=VOLUME_MIN,
+        max=VOLUME_MAX,
+        step=0.5,
+        mode=selector.NumberSelectorMode.BOX,
+        unit_of_measurement="dB",
+    )
+)
 
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
@@ -20,7 +30,11 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
-def _options_schema(current_names: dict[str, str], hidden: list[str]) -> vol.Schema:
+def _options_schema(
+    current_names: dict[str, str],
+    hidden: list[str],
+    vol_limits: dict[str, float],
+) -> vol.Schema:
     return vol.Schema(
         {
             **{
@@ -36,6 +50,14 @@ def _options_schema(current_names: dict[str, str], hidden: list[str]) -> vol.Sch
                     multiple=True,
                 )
             ),
+            **{
+                vol.Optional(key, default=vol_limits[key]): _VOL_SELECTOR
+                for key in (
+                    "zone1_vol_min", "zone1_vol_max",
+                    "zone2_vol_min", "zone2_vol_max",
+                    "zone3_vol_min", "zone3_vol_max",
+                )
+            },
         }
     )
 
@@ -97,8 +119,16 @@ class AnthemSerialOptionsFlow(OptionsFlow):
             for idx, default_name in SOURCES.items()
         }
         hidden = self.config_entry.options.get("hidden_sources", [])
+        vol_limits = {
+            key: self.config_entry.options.get(key, default)
+            for key, default in [
+                ("zone1_vol_min", VOLUME_MIN), ("zone1_vol_max", VOLUME_MAX),
+                ("zone2_vol_min", VOLUME_MIN), ("zone2_vol_max", VOLUME_MAX),
+                ("zone3_vol_min", VOLUME_MIN), ("zone3_vol_max", VOLUME_MAX),
+            ]
+        }
 
         return self.async_show_form(
             step_id="init",
-            data_schema=_options_schema(current_names, hidden),
+            data_schema=_options_schema(current_names, hidden, vol_limits),
         )

@@ -27,6 +27,12 @@
         "title": "Manage inputs",
         "data": {
           "hidden_sources": "Hide inputs",
+          "zone1_vol_min": "Main zone minimum volume (dB)",
+          "zone1_vol_max": "Main zone maximum volume (dB)",
+          "zone2_vol_min": "Zone 2 minimum volume (dB)",
+          "zone2_vol_max": "Zone 2 maximum volume (dB)",
+          "zone3_vol_min": "Zone 3 minimum volume (dB)",
+          "zone3_vol_max": "Zone 3 maximum volume (dB)",
           "source_0": "CD",
           "source_1": "2-Ch BAL",
           "source_2": "6-Ch SE",

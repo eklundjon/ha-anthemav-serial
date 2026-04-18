@@ -18,8 +18,12 @@ def cmd_power(zone: int, on: bool) -> str:
 
 
 def cmd_volume(zone: int, db: float) -> str:
-    db_rounded = round(db * 2) / 2  # device accepts 0.5 dB increments
-    return f"P{zone}VM{db_rounded:+.1f}"
+    if zone == ZONE_MAIN:
+        db_rounded = round(db * 2) / 2        # 0.5 dB steps
+        return f"P{zone}VM{db_rounded:+.1f}"
+    else:
+        db_rounded = round(db / 1.25) * 1.25  # 1.25 dB steps (zones 2/3)
+        return f"P{zone}V{db_rounded:+.2f}"
 
 def cmd_mute(zone: int, mute: bool) -> str:
     return f"P{zone}M{1 if mute else 0}"
