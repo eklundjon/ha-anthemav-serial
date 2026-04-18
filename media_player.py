@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+from typing import Any
 
 from homeassistant.components.media_player import (
     MediaPlayerEntity,
@@ -21,13 +23,10 @@ from .const import (
     VOLUME_MIN,
     ZONE_2,
     ZONE_3,
+    ZONE_EXTRA_ATTRS,
     ZONE_MAIN,
     cmd_mute,
     cmd_power,
-    cmd_query_power,
-    cmd_query_source,
-    cmd_query_status,
-    cmd_query_volume,
     cmd_source,
     cmd_volume,
 )
@@ -111,12 +110,26 @@ class AnthemZoneEntity(MediaPlayerEntity):
         self._attr_source_list = list(self._sources.values())
         self._source_by_name = {name: idx for idx, name in self._sources.items()}
 
+        # Extra attributes: storage dict + pre-compiled parsers.
+        # Sorted longest-suffix-first so e.g. "DF" is tried before "D".
+        self._extra_attrs: dict[str, Any] = {}
+        self._extra_attr_parsers: list[tuple[re.Pattern[str], str, dict[str, str] | None, bool]] = [
+            (re.compile(rf"P{zone}{re.escape(suffix)}(.+)$"), name, enum_map, src_prefix)
+            for name, suffix, enum_map, src_prefix in sorted(ZONE_EXTRA_ATTRS, key=lambda x: -len(x[1]))
+        ]
+
     async def async_added_to_hass(self) -> None:
         """Request current state from the device on startup."""
-        await self._client.send(cmd_query_power(self.zone))
-        await self._client.send(cmd_query_source(self.zone))
-        await self._client.send(cmd_query_volume(self.zone))
-        await self._client.send(cmd_query_status(self.zone))
+        await self._client.send(f"P{self.zone}P?;P{self.zone}?")
+        self.hass.async_create_task(self._async_query_extra_attrs())
+
+    async def _async_query_extra_attrs(self) -> None:
+        """Send extra attribute queries in batched stacks after a short delay."""
+        await asyncio.sleep(2)
+        suffixes = [suffix for _, suffix, _, _ in ZONE_EXTRA_ATTRS]
+        for i in range(0, len(suffixes), 10):
+            batch = ";".join(f"P{self.zone}{s}?" for s in suffixes[i:i + 10])
+            await self._client.send(batch)
 
     def handle_message(self, message: str) -> None:
         """Parse a push status message and update entity state."""
@@ -147,16 +160,37 @@ class AnthemZoneEntity(MediaPlayerEntity):
             self._attr_source = self._sources.get(m.group(1))
             changed = True
 
-        # Combined zone status: P{z}S{source}V{vol}M{mute}  (response to P{z}?)
-        if m := re.match(rf"P{z}S([0-9c-j])V([+-]?\d+\.\d+)M([01])$", message):
+        # Combined zone status: P{z}S{source}V{vol}M{mute}[...] (response to P{z}?)
+        # Zone 1 appends extra fields (e.g. D7 for decoder), so no $ anchor.
+        if m := re.match(rf"P{z}S([0-9c-j])V([+-]?\d+\.\d+)M([01])", message):
             self._attr_source = self._sources.get(m.group(1))
             db = float(m.group(2))
             self._attr_volume_level = (db - VOLUME_MIN) / (VOLUME_MAX - VOLUME_MIN)
             self._attr_is_volume_muted = m.group(3) == "1"
             changed = True
 
+        # Extra attributes
+        for pattern, attr_name, enum_map, src_prefix in self._extra_attr_parsers:
+            if m := pattern.match(message):
+                raw = m.group(1)
+                if src_prefix:
+                    raw = raw[1:]  # strip leading source-index char
+                if enum_map is not None:
+                    self._extra_attrs[attr_name] = enum_map.get(raw, raw)
+                else:
+                    try:
+                        self._extra_attrs[attr_name] = float(raw)
+                    except ValueError:
+                        self._extra_attrs[attr_name] = raw
+                changed = True
+                break
+
         if changed and self.hass:
             self.async_write_ha_state()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return dict(self._extra_attrs)
 
     def mark_unavailable(self) -> None:
         self._attr_available = False

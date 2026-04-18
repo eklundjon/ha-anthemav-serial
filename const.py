@@ -16,17 +16,6 @@ ZONE_3 = 3
 def cmd_power(zone: int, on: bool) -> str:
     return f"P{zone}P{1 if on else 0}"
 
-def cmd_query_power(zone: int) -> str:
-    return f"P{zone}P?"
-
-def cmd_query_source(zone: int) -> str:
-    return f"P{zone}S?"
-
-def cmd_query_volume(zone: int) -> str:
-    return f"P{zone}VM?"
-
-def cmd_query_status(zone: int) -> str:
-    return f"P{zone}?"
 
 def cmd_volume(zone: int, db: float) -> str:
     db_rounded = round(db * 2) / 2  # device accepts 0.5 dB increments
@@ -62,3 +51,115 @@ SOURCES = {
 
 VOLUME_MIN = -95.5
 VOLUME_MAX = 31.5
+
+# ---- Extra zone attributes -----------------------------------------------
+# Enum maps for interpreted values
+_DECODER_STATUS: dict[str, str] = {
+    "0": "Stereo", "1": "Dolby Digital", "2": "DTS", "3": "MPEG",
+    "4": "6-Ch", "5": "2-Ch Analog Direct", "6": "No Signal",
+    "7": "Dolby Digital Plus", "8": "Dolby TrueHD", "9": "DTS-HD",
+}
+_DECODER_FLAGS: dict[str, str] = {
+    "0": "No Signal", "1": "Mono", "2": "2Ch Unflagged", "3": "2Ch Flagged",
+    "4": "6Ch Unflagged Dolby", "5": "Dolby Digital 5.1 EX",
+    "6": "6Ch Unflagged DTS", "7": "DTS EX Matrix", "8": "DTS EX Discrete",
+    "9": "6Ch Analog/PCM", "A": "8 Channel",
+}
+_SOURCE_TYPE: dict[str, str] = {
+    "0": "Digital", "1": "DTS 24/96", "2": "Analog DSP",
+    "3": "Analog Direct", "4": "Auto Digital",
+    "5": "DTS-HD Low Bit Rate", "6": "DTS-HD Master Audio",
+    "7": "DTS-ES Discrete", "8": "DTS-HD Matrix", "9": "PCM",
+    "a": "Dolby Digital", "b": "DTS Digital Surround",
+    "c": "Dolby Digital Plus", "d": "Dolby TrueHD",
+    "e": "DTS-HD High Resolution",
+}
+_FX_MODES: dict[str, str] = {
+    "0": "Off", "1": "AnthemLogic Music", "2": "AnthemLogic Cinema",
+    "3": "ProLogic IIx Music", "4": "ProLogic IIx Movie", "5": "ProLogic",
+    "6": "Neo:6 Music", "7": "Neo:6 Cinema", "8": "All-Channel Stereo",
+    "9": "All-Channel Mono", "A": "Mono", "B": "Mono Academy",
+    "C": "ProLogic IIx Matrix", "D": "ProLogic IIx Game",
+}
+_DOLBY_EX_FX: dict[str, str] = {
+    "0": "Off", "1": "Dolby Digital EX", "2": "THX Surround EX",
+    "3": "ProLogic IIx Movie", "4": "ProLogic IIx Movie THX",
+    "5": "ProLogic IIx Music", "6": "Neo:6", "7": "Neo:6 THX",
+}
+_DOLBY_DIGITAL_FX: dict[str, str] = {
+    "0": "Off", "1": "THX Cinema 5.1", "2": "THX Ultra2 Cinema",
+    "3": "THX Music", "4": "THX Surround EX", "5": "THX Games",
+    "6": "PLIIx Movie", "7": "PLIIx Movie THX", "8": "PLIIx Music",
+    "9": "Dolby Digital EX", "A": "Neo:6", "B": "Neo:6 THX",
+}
+_DTS_FX: dict[str, str] = {
+    "0": "Off", "1": "THX Cinema 5.1", "2": "THX Ultra2 Cinema",
+    "3": "THX Music", "4": "Neo:6 THX", "5": "THX Games",
+    "6": "PLIIx Movie", "7": "PLIIx Movie THX", "8": "PLIIx Music",
+    "9": "Dolby Digital EX", "A": "Neo:6",
+}
+_DTS_MATRIX_FX: dict[str, str] = {
+    "0": "Off", "1": "Off", "2": "THX Cinema",
+    "3": "Off", "4": "THX Cinema", "5": "Off", "6": "Off",
+}
+_ON_OFF: dict[str, str] = {"0": "Off", "1": "On"}
+
+# Extra per-zone attributes beyond power/source/volume/mute.
+# Each tuple: (ha_attr_name, cmd_suffix, enum_map or None, source_prefixed).
+# source_prefixed=True means the device prepends the active source index to the
+# value in its response (e.g. P1D77 → source 7, decoder value 7).
+# Sorted longest-suffix-first at parse time to avoid ambiguous prefix matches.
+ZONE_EXTRA_ATTRS: list[tuple[str, str, dict[str, str] | None, bool]] = [
+    # Decoder / format status  (all source-prefixed)
+    ("decoder",                  "D",   _DECODER_STATUS,  True),
+    ("decoder_flags",            "DF",  _DECODER_FLAGS,   True),
+    ("source_type",              "DS",  _SOURCE_TYPE,     True),
+    ("processing_mode",          "Q",   None,             False),  # free-text, no prefix
+    ("ac3_status",               "A",   {"0": "Not AC3", "1": "2-Channel", "2": "Multichannel"}, True),
+    ("ac3_dialog_normalization", "AD",  None,             True),
+    # DSP / listening mode  (source-independent)
+    ("compression",              "C",   {"0": "Normal", "1": "Reduced", "2": "Night"}, False),
+    ("tone_bypass",              "TE",  {"0": "On", "1": "Off"},                       False),
+    ("sleep_timer",              "Z",   {"0": "Off", "1": "30 min", "2": "60 min", "3": "90 min"}, False),
+    # FX modes  (all source-prefixed)
+    ("audio_fx",                 "E",   _FX_MODES,        True),
+    ("dolby_stereo_fx",          "EF",  _FX_MODES,        True),
+    ("dolby_ex_fx",              "EE",  _DOLBY_EX_FX,     True),
+    ("dts_matrix_fx",            "ES",  _DTS_MATRIX_FX,   True),
+    ("dolby_stereo_thx",         "EU",  {"0": "Off", "1": "THX Cinema", "2": "THX Games"}, True),
+    ("stereo_thx",               "ET",  {"0": "Off", "1": "THX Cinema", "2": "THX Game"},  True),
+    ("seven_ch_thx",             "EW",  {"0": "Off", "1": "THX Cinema"},                   True),
+    ("dolby_digital_fx",         "EX",  _DOLBY_DIGITAL_FX, True),
+    ("six_ch_fx",                "EY",  _DOLBY_DIGITAL_FX, True),
+    ("dts_fx",                   "ED",  _DTS_FX,           True),
+    ("prologic_panorama",        "EMP", _ON_OFF,           True),
+    ("prologic_width",           "EMC", None,              True),
+    ("prologic_dimension",       "EMD", None,              True),
+    ("dts_neo6_center_gain",     "EMG", None,              True),
+    ("thx_reeq_thx",             "ER",  _ON_OFF,           True),
+    ("thx_reeq_non_thx",         "EN",  _ON_OFF,           True),
+    # Per-channel volume trims (dB)  (source-independent)
+    ("volume_trim_front",        "VF",  None, False),
+    ("volume_trim_center",       "VC",  None, False),
+    ("volume_trim_surround",     "VR",  None, False),
+    ("volume_trim_back",         "VB",  None, False),
+    ("volume_trim_sub",          "VS",  None, False),
+    ("volume_trim_lfe",          "VL",  None, False),
+    # Balance (dB)  (source-independent)
+    ("balance",                  "LM",  None, False),
+    ("balance_front",            "LF",  None, False),
+    ("balance_surround",         "LR",  None, False),
+    ("balance_back",             "LB",  None, False),
+    # Bass (dB)  (source-independent)
+    ("bass",                     "BM",  None, False),
+    ("bass_front",               "BF",  None, False),
+    ("bass_center",              "BC",  None, False),
+    ("bass_surround",            "BR",  None, False),
+    ("bass_rear",                "BB",  None, False),
+    # Treble (dB)  (source-independent)
+    ("treble",                   "TM",  None, False),
+    ("treble_front",             "TF",  None, False),
+    ("treble_center",            "TC",  None, False),
+    ("treble_surround",          "TR",  None, False),
+    ("treble_rear",              "TB",  None, False),
+]
