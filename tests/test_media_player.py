@@ -247,6 +247,50 @@ async def test_zone_combined_status_message(hass, setup_integration):
     assert abs(state.attributes["volume_level"] - expected_vol) < 0.001
 
 
+# ── Zone: simulcast ────────────────────────────────────────────────────────────
+
+async def test_zone_simulcast_standalone_uses_audio_source(hass, setup_integration):
+    """P{z}X{audio}{video} — audio source (first char) is tracked."""
+    _, mock_client = setup_integration
+    on_message = mock_client._on_message
+
+    on_message("P1P1")
+    on_message("P1X50")  # audio=DVD1 (5), video=CD (0)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(zone_entity_id(hass, ZONE_MAIN))
+    assert state.attributes["source"] == "DVD1"
+
+
+async def test_zone_simulcast_combined_status(hass, setup_integration):
+    """P{z}X{audio}{video}V{vol}M{mute} — audio source, vol, mute all parsed."""
+    _, mock_client = setup_integration
+    on_message = mock_client._on_message
+
+    on_message("P1P1")
+    on_message("P1X50V-35.0M1")  # audio=DVD1 (5), video=CD (0), muted
+    await hass.async_block_till_done()
+
+    state = hass.states.get(zone_entity_id(hass, ZONE_MAIN))
+    assert state.attributes["source"] == "DVD1"
+    assert state.attributes["is_volume_muted"] is True
+    expected_vol = (-35.0 - VOLUME_MIN) / (VOLUME_MAX - VOLUME_MIN)
+    assert abs(state.attributes["volume_level"] - expected_vol) < 0.001
+
+
+async def test_zone_simulcast_tuner_notified(hass, setup_integration):
+    """Tuner entity is notified when simulcast audio source is tuner."""
+    _, mock_client = setup_integration
+    on_message = mock_client._on_message
+
+    on_message("P1P1")
+    on_message("P1X46")  # audio=Tuner (4), video=TV1 (6)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(tuner_entity_id(hass))
+    assert state.state == MediaPlayerState.ON
+
+
 # ── Zone: extra attributes ─────────────────────────────────────────────────────
 
 async def test_zone_extra_attr_enum_resolved(hass, setup_integration):

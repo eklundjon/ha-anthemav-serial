@@ -222,16 +222,31 @@ class AnthemZoneEntity(MediaPlayerEntity):
             self._attr_is_volume_muted = m.group(1) == "1"
             changed = True
 
-        # Source: P{z}S{id}  (id is 0-9 or c-j)
+        # Source: P{z}S{id} or P{z}X{audio}{video} in simulcast mode.
+        # Protocol doc: in simulcast responses the first char after X is the audio
+        # source and the second is the video source; we track the audio source.
         if m := re.match(rf"P{z}S([0-9c-j])$", message):
             self._source_id = m.group(1)
+            self._attr_source = self._sources.get(self._source_id)
+            changed = True
+        elif m := re.match(rf"P{z}X([0-9c-j])[0-9c-j]$", message):
+            self._source_id = m.group(1)  # audio source
             self._attr_source = self._sources.get(self._source_id)
             changed = True
 
         # Combined zone status: P{z}S{source}V{vol}M{mute}[...] (response to P{z}?)
         # Zone 1 appends extra fields (e.g. D7 for decoder), so no $ anchor.
+        # Simulcast variant: P{z}X{audio}{video}V{vol}M{mute}[...]
         if m := re.match(rf"P{z}S([0-9c-j])V([+-]?\d+\.\d+)M([01])", message):
             self._source_id = m.group(1)
+            self._attr_source = self._sources.get(self._source_id)
+            db = float(m.group(2))
+            self._attr_volume_level = max(0.0, min(1.0, (db - self._vol_min) / (self._vol_max - self._vol_min)))
+            self._attr_is_volume_muted = m.group(3) == "1"
+            self._attr_available = True
+            changed = True
+        elif m := re.match(rf"P{z}X([0-9c-j])[0-9c-j]V([+-]?\d+\.\d+)M([01])", message):
+            self._source_id = m.group(1)  # audio source
             self._attr_source = self._sources.get(self._source_id)
             db = float(m.group(2))
             self._attr_volume_level = max(0.0, min(1.0, (db - self._vol_min) / (self._vol_max - self._vol_min)))
