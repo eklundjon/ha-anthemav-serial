@@ -9,7 +9,7 @@ from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.anthemav_serial.const import DOMAIN, VOLUME_MAX, VOLUME_MIN
-from tests.conftest import MOCK_HOST, MOCK_PORT, ENTRY_DATA
+from tests.conftest import MOCK_HOST, MOCK_PORT, MOCK_MODEL, MOCK_SW_VERSION, MOCK_IDENTITY, ENTRY_DATA
 
 
 # ── Config flow (user step) ────────────────────────────────────────────────────
@@ -25,25 +25,51 @@ async def test_user_step_shows_form(hass):
 
 async def test_user_step_success_creates_entry(hass):
     mock_client = MagicMock()
-    mock_client.connect = AsyncMock()
+    mock_client.start = AsyncMock()
     mock_client.stop = AsyncMock()
+    mock_client.query_one = AsyncMock(return_value=MOCK_IDENTITY)
 
     with patch(
         "custom_components.anthemav_serial.config_flow.AnthemClient",
         return_value=mock_client,
     ):
         result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data=ENTRY_DATA
+            DOMAIN, context={"source": "user"}, data={"host": MOCK_HOST, "port": MOCK_PORT}
         )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert result["data"] == ENTRY_DATA
-    assert result["title"] == f"Anthem AVM50 ({MOCK_HOST})"
+    assert result["title"] == MOCK_MODEL
+    assert result["data"]["host"] == MOCK_HOST
+    assert result["data"]["port"] == MOCK_PORT
+    assert result["data"]["model"] == MOCK_MODEL
+    assert result["data"]["sw_version"] == MOCK_SW_VERSION
+
+
+async def test_user_step_falls_back_to_default_name_when_identity_not_received(hass):
+    from custom_components.anthemav_serial.const import DEFAULT_NAME
+
+    mock_client = MagicMock()
+    mock_client.start = AsyncMock()
+    mock_client.stop = AsyncMock()
+    mock_client.query_one = AsyncMock(return_value=None)
+
+    with patch(
+        "custom_components.anthemav_serial.config_flow.AnthemClient",
+        return_value=mock_client,
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": "user"}, data={"host": MOCK_HOST, "port": MOCK_PORT}
+        )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["title"] == DEFAULT_NAME
+    assert result["data"]["model"] == DEFAULT_NAME
+    assert "sw_version" not in result["data"]
 
 
 async def test_user_step_cannot_connect_shows_error(hass):
     mock_client = MagicMock()
-    mock_client.connect = AsyncMock(side_effect=OSError)
+    mock_client.start = AsyncMock(side_effect=OSError)
     mock_client.stop = AsyncMock()
 
     with patch(
@@ -51,7 +77,7 @@ async def test_user_step_cannot_connect_shows_error(hass):
         return_value=mock_client,
     ):
         result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data=ENTRY_DATA
+            DOMAIN, context={"source": "user"}, data={"host": MOCK_HOST, "port": MOCK_PORT}
         )
 
     assert result["type"] == FlowResultType.FORM
@@ -60,7 +86,7 @@ async def test_user_step_cannot_connect_shows_error(hass):
 
 async def test_user_step_timeout_shows_error(hass):
     mock_client = MagicMock()
-    mock_client.connect = AsyncMock(side_effect=TimeoutError)
+    mock_client.start = AsyncMock(side_effect=TimeoutError)
     mock_client.stop = AsyncMock()
 
     with patch(
@@ -68,7 +94,7 @@ async def test_user_step_timeout_shows_error(hass):
         return_value=mock_client,
     ):
         result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data=ENTRY_DATA
+            DOMAIN, context={"source": "user"}, data={"host": MOCK_HOST, "port": MOCK_PORT}
         )
 
     assert result["type"] == FlowResultType.FORM
@@ -77,7 +103,7 @@ async def test_user_step_timeout_shows_error(hass):
 
 async def test_user_step_unknown_error_shows_error(hass):
     mock_client = MagicMock()
-    mock_client.connect = AsyncMock(side_effect=RuntimeError("boom"))
+    mock_client.start = AsyncMock(side_effect=RuntimeError("boom"))
     mock_client.stop = AsyncMock()
 
     with patch(
@@ -85,7 +111,7 @@ async def test_user_step_unknown_error_shows_error(hass):
         return_value=mock_client,
     ):
         result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data=ENTRY_DATA
+            DOMAIN, context={"source": "user"}, data={"host": MOCK_HOST, "port": MOCK_PORT}
         )
 
     assert result["type"] == FlowResultType.FORM
@@ -95,15 +121,16 @@ async def test_user_step_unknown_error_shows_error(hass):
 async def test_user_step_aborts_if_already_configured(hass, config_entry):
     # config_entry fixture already adds the entry to hass.
     mock_client = MagicMock()
-    mock_client.connect = AsyncMock()
+    mock_client.start = AsyncMock()
     mock_client.stop = AsyncMock()
+    mock_client.query_one = AsyncMock(return_value=MOCK_IDENTITY)
 
     with patch(
         "custom_components.anthemav_serial.config_flow.AnthemClient",
         return_value=mock_client,
     ):
         result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data=ENTRY_DATA
+            DOMAIN, context={"source": "user"}, data={"host": MOCK_HOST, "port": MOCK_PORT}
         )
 
     assert result["type"] == FlowResultType.ABORT
@@ -278,7 +305,7 @@ async def test_options_flow_uses_stored_time_format_without_querying(
 
     entry = MockConfigEntry(
         domain=DOMAIN,
-        title=f"Anthem AVM50 ({MOCK_HOST})",
+        title=MOCK_MODEL,
         data=ENTRY_DATA,
         options={"time_format_24hr": True},
         unique_id=f"{MOCK_HOST}:{MOCK_PORT}",

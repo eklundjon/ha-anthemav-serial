@@ -2,14 +2,15 @@
   "config": {
     "step": {
       "user": {
-        "title": "Connect to Anthem Serial",
+        "title": "Serial Gateway Configuration",
+        "description": "This integration connects to an Anthem Gen1 A/V processor RS232 control port via an IP-to-serial gateway (e.g. Global Cache iTach).",
         "data": {
           "host": "Host",
           "port": "Port"
         },
         "data_description": {
-          "host": "IP address or hostname of the Anthem device",
-          "port": "TCP port (default 14000)"
+          "host": "IP address or hostname of your serial gateway",
+          "port": "TCP port of the serial interface connected to your Anthem device"
         }
       }
     },

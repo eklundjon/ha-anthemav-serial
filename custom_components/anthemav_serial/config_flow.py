@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import voluptuous as vol
@@ -10,7 +11,12 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .client import AnthemClient
-from .const import DEFAULT_NAME, DEFAULT_PORT, DOMAIN, SOURCES, VOLUME_MAX, VOLUME_MIN
+from .const import DEFAULT_NAME, DOMAIN, SOURCES, VOLUME_MAX, VOLUME_MIN
+
+CONF_MODEL = "model"
+CONF_SW_VERSION = "sw_version"
+
+_IDENTITY_RE = re.compile(r"^(.+?)\s+(v\d+\.\S+)\s+(.+)$")
 
 _VOL_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
@@ -25,7 +31,7 @@ _VOL_SELECTOR = selector.NumberSelector(
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_HOST): str,
-        vol.Optional(CONF_PORT, default=DEFAULT_PORT): int,
+        vol.Required(CONF_PORT): int,
     }
 )
 
@@ -88,16 +94,27 @@ class AnthemSerialConfigFlow(ConfigFlow, domain=DOMAIN):
 
             try:
                 client = AnthemClient(host=host, port=port, on_message=lambda _: None)
-                await client.connect()
+                await client.start()
+                identity = await client.query_one("?", "")
                 await client.stop()
             except (TimeoutError, OSError):
                 errors["base"] = "cannot_connect"
             except Exception:  # noqa: BLE001
                 errors["base"] = "unknown"
             else:
+                model = DEFAULT_NAME
+                sw_version: str | None = None
+                if identity:
+                    if m := _IDENTITY_RE.match(identity):
+                        model = m.group(1)
+                        sw_version = m.group(2)
+                entry_data = dict(user_input)
+                entry_data[CONF_MODEL] = model
+                if sw_version is not None:
+                    entry_data[CONF_SW_VERSION] = sw_version
                 return self.async_create_entry(
-                    title=f"{DEFAULT_NAME} ({host})",
-                    data=user_input,
+                    title=model,
+                    data=entry_data,
                 )
 
         return self.async_show_form(

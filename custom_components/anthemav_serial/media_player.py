@@ -17,6 +17,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .client import AnthemClient
+from .config_flow import CONF_MODEL, CONF_SW_VERSION
 from .const import (
     DOMAIN,
     NON_QUERYABLE_SUFFIXES,
@@ -133,7 +134,8 @@ class AnthemZoneEntity(MediaPlayerEntity):
             identifiers={(DOMAIN, device_id)},
             name=entry.title,
             manufacturer="Anthem",
-            model="AVM50",
+            model=entry.data.get(CONF_MODEL),
+            sw_version=entry.data.get(CONF_SW_VERSION),
         )
         self._vol_min: float = entry.options.get(f"zone{zone}_vol_min", VOLUME_MIN)
         self._vol_max: float = entry.options.get(f"zone{zone}_vol_max", VOLUME_MAX)
@@ -321,7 +323,8 @@ class AnthemTunerEntity(MediaPlayerEntity):
             identifiers={(DOMAIN, device_id)},
             name=entry.title,
             manufacturer="Anthem",
-            model="AVM50",
+            model=entry.data.get(CONF_MODEL),
+            sw_version=entry.data.get(CONF_SW_VERSION),
         )
         self._attr_available = False
         self._frequency: str | None = None

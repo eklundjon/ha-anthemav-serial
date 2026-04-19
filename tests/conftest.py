@@ -19,7 +19,15 @@ from custom_components.anthemav_serial.const import DOMAIN, VOLUME_MAX, VOLUME_M
 
 MOCK_HOST = "192.168.1.100"
 MOCK_PORT = 14000
-ENTRY_DATA = {"host": MOCK_HOST, "port": MOCK_PORT}
+MOCK_MODEL = "AVM 50v"
+MOCK_SW_VERSION = "v3.09"
+MOCK_IDENTITY = f"{MOCK_MODEL} {MOCK_SW_VERSION} Aug 21 2012-12:07:09"
+ENTRY_DATA = {
+    "host": MOCK_HOST,
+    "port": MOCK_PORT,
+    "model": MOCK_MODEL,
+    "sw_version": MOCK_SW_VERSION,
+}
 
 
 # ── Required by HA 2021.6+: allow custom components to load during tests ───────
@@ -55,7 +63,7 @@ def config_entry(hass):
     """A MockConfigEntry pre-added to hass."""
     entry = MockConfigEntry(
         domain=DOMAIN,
-        title=f"Anthem AVM50 ({MOCK_HOST})",
+        title=MOCK_MODEL,
         data=ENTRY_DATA,
         options={},
         unique_id=f"{MOCK_HOST}:{MOCK_PORT}",
