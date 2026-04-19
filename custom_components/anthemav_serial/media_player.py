@@ -90,7 +90,11 @@ async def async_setup_entry(
         if re.match(r"^E\d+$", message):
             _LOGGER.debug("Device error code: %s", message)
             return
-        if message in ("Main Off", "Zone2 Off", "Zone3 Off", "Unit Off"):
+        _ZONE_OFF = {"Main Off": ZONE_MAIN, "Zone2 Off": ZONE_2, "Zone3 Off": ZONE_3}
+        if message in _ZONE_OFF:
+            zone_map[_ZONE_OFF[message]].handle_message(message)
+            return
+        if message == "Unit Off":
             _LOGGER.debug("Device status: %s", message)
             return
         if message in ("Invalid Command", "Parameter Out-of-range"):
@@ -186,6 +190,14 @@ class AnthemZoneEntity(MediaPlayerEntity):
         changed = False
         z = self.zone
 
+        # Zone-off notification (e.g. "Main Off", "Zone2 Off") — device sends this
+        # instead of P{z}P0 in some contexts (e.g. response to P{z}? when zone is off).
+        _zone_off_msg = {1: "Main Off", 2: "Zone2 Off", 3: "Zone3 Off"}.get(z)
+        if message == _zone_off_msg:
+            self._attr_state = MediaPlayerState.OFF
+            self._attr_available = True
+            changed = True
+
         # Power: P{z}P{0|1}
         if m := re.match(rf"P{z}P([01])$", message):
             self._attr_state = (
@@ -222,6 +234,7 @@ class AnthemZoneEntity(MediaPlayerEntity):
             db = float(m.group(2))
             self._attr_volume_level = max(0.0, min(1.0, (db - self._vol_min) / (self._vol_max - self._vol_min)))
             self._attr_is_volume_muted = m.group(3) == "1"
+            self._attr_available = True
             changed = True
 
         # Extra attributes
