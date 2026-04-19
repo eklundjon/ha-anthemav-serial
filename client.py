@@ -26,6 +26,7 @@ class AnthemClient:
         self._listen_task: asyncio.Task | None = None
         self._running = False
         self.last_command: str = ""
+        self._pending_queries: dict[str, asyncio.Future[str]] = {}
 
     @property
     def connected(self) -> bool:
@@ -69,6 +70,18 @@ class AnthemClient:
             self.last_command = command
             _LOGGER.debug("Sent: %s", command)
 
+    async def query_one(self, command: str, prefix: str, timeout: float = 3.0) -> str | None:
+        """Send a command and return the first response that starts with prefix."""
+        fut: asyncio.Future[str] = asyncio.get_event_loop().create_future()
+        self._pending_queries[prefix] = fut
+        try:
+            await self.send(command)
+            return await asyncio.wait_for(asyncio.shield(fut), timeout=timeout)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            self._pending_queries.pop(prefix, None)
+
     async def _listen(self) -> None:
         """Read lines from the socket indefinitely and dispatch to callback."""
         while self._running:
@@ -81,6 +94,9 @@ class AnthemClient:
                 message = line.decode().strip()
                 if message:
                     _LOGGER.debug("Received: %s", message)
+                    for prefix, fut in list(self._pending_queries.items()):
+                        if message.startswith(prefix) and not fut.done():
+                            fut.set_result(message)
                     self._on_message(message)
             except asyncio.CancelledError:
                 break

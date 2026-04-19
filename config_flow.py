@@ -34,6 +34,7 @@ def _options_schema(
     current_names: dict[str, str],
     hidden: list[str],
     vol_limits: dict[str, float],
+    time_format_24hr: bool,
 ) -> vol.Schema:
     return vol.Schema(
         {
@@ -58,6 +59,7 @@ def _options_schema(
                     "zone3_vol_min", "zone3_vol_max",
                 )
             },
+            vol.Optional("time_format_24hr", default=time_format_24hr): bool,
         }
     )
 
@@ -119,6 +121,14 @@ class AnthemSerialOptionsFlow(OptionsFlow):
             for idx, default_name in SOURCES.items()
         }
         hidden = self.config_entry.options.get("hidden_sources", [])
+
+        if "time_format_24hr" in self.config_entry.options:
+            time_format_24hr: bool = self.config_entry.options["time_format_24hr"]
+        else:
+            # Query the device for its current clock format setting.
+            client = self.hass.data[DOMAIN][self.config_entry.entry_id]
+            response = await client.query_one("STF?", "STF")
+            time_format_24hr = response == "STF1" if response is not None else False
         vol_limits = {
             key: self.config_entry.options.get(key, default)
             for key, default in [
@@ -130,5 +140,5 @@ class AnthemSerialOptionsFlow(OptionsFlow):
 
         return self.async_show_form(
             step_id="init",
-            data_schema=_options_schema(current_names, hidden, vol_limits),
+            data_schema=_options_schema(current_names, hidden, vol_limits, time_format_24hr),
         )

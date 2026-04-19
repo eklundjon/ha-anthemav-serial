@@ -37,6 +37,8 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+PARALLEL_UPDATES = 0
+
 # Zone 1 gets name=None so its entity name IS the device name.
 # Zone 2 gets a suffix so it appears as "<device> Zone 2".
 ZONE_NAMES: dict[int, str] = {
@@ -132,6 +134,7 @@ class AnthemZoneEntity(MediaPlayerEntity):
         self._vol_min: float = entry.options.get(f"zone{zone}_vol_min", VOLUME_MIN)
         self._vol_max: float = entry.options.get(f"zone{zone}_vol_max", VOLUME_MAX)
 
+        self._attr_available = False
         self._attr_state: MediaPlayerState | None = None
         self._attr_volume_level: float | None = None
         self._attr_is_volume_muted: bool | None = None
@@ -307,6 +310,7 @@ class AnthemTunerEntity(MediaPlayerEntity):
             manufacturer="Anthem",
             model="AVM50",
         )
+        self._attr_available = False
         self._frequency: str | None = None
         self._zones_on_tuner: set[int] = set()
         self._attr_state = MediaPlayerState.IDLE
@@ -318,10 +322,11 @@ class AnthemTunerEntity(MediaPlayerEntity):
         else:
             self._zones_on_tuner.discard(zone)
         new_state = MediaPlayerState.ON if self._zones_on_tuner else MediaPlayerState.IDLE
-        if new_state != self._attr_state:
-            self._attr_state = new_state
-            if self.hass:
-                self.async_write_ha_state()
+        changed = new_state != self._attr_state or not self._attr_available
+        self._attr_available = True
+        self._attr_state = new_state
+        if changed and self.hass:
+            self.async_write_ha_state()
 
     @property
     def media_title(self) -> str | None:
