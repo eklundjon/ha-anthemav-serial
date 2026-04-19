@@ -1,7 +1,7 @@
 {
-  "domain": "anthem_serial",
-  "name": "Anthem Serial",
-  "version": "0.1.0",
+  "domain": "anthemav_serial",
+  "name": "Anthem A/V Gen1 Serial",
+  "version": "0.2.0",
   "documentation": "",
   "dependencies": [],
   "codeowners": [],

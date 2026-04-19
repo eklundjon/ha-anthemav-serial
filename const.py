@@ -1,4 +1,4 @@
-DOMAIN = "anthem_serial"
+DOMAIN = "anthemav_serial"
 
 DEFAULT_PORT = 14000  # adjust to match your gateway
 DEFAULT_NAME = "Anthem AVM50"
