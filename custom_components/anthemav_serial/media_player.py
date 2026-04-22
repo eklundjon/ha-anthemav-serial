@@ -82,7 +82,7 @@ async def async_setup_entry(
         if message.startswith("H"):
             _LOGGER.debug("Headphone message (entity disabled): %r", message)
             return
-        if message.startswith("TAT") or message.startswith("TFT"):
+        if message.startswith("TAT") or message.startswith("TFT") or message.startswith("TH"):
             tuner.handle_message(message)
             return
         if message.startswith("P4"):
@@ -343,6 +343,7 @@ class AnthemTunerEntity(MediaPlayerEntity):
         )
         self._attr_available = False
         self._frequency: str | None = None
+        self._tuner_mode: str | None = None
         self._zones_on_tuner: set[int] = set()
         self._attr_state = MediaPlayerState.IDLE
 
@@ -363,8 +364,17 @@ class AnthemTunerEntity(MediaPlayerEntity):
     def media_title(self) -> str | None:
         return self._frequency
 
+    _TH_MODES = {"0": "Stereo", "1": "Hi-blend", "2": "Mono"}
+
     async def async_added_to_hass(self) -> None:
-        pass  # tuner frequency arrives as push when a zone selects tuner source
+        await self._client.send("TH?")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        attrs = {}
+        if self._tuner_mode is not None:
+            attrs["tuner_mode"] = self._tuner_mode
+        return attrs
 
     def handle_message(self, message: str) -> None:
         # AM: TAT 530  FM: TFT 87.5  (device includes a space before the value)
@@ -374,6 +384,8 @@ class AnthemTunerEntity(MediaPlayerEntity):
         elif m := re.match(r"TFT\s*([\d.]+)$", message):
             self._frequency = f"FM {m.group(1)} MHz"
             self._attr_available = True
+        elif m := re.match(r"TH([012])$", message):
+            self._tuner_mode = self._TH_MODES[m.group(1)]
         else:
             _LOGGER.warning("Tuner: unrecognized message %r", message)
             return

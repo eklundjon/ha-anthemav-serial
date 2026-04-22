@@ -4,7 +4,7 @@
 [![HA Version](https://img.shields.io/badge/Home%20Assistant-2024.1.0+-blue.svg)](https://www.home-assistant.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A Home Assistant custom integration for controlling **Anthem Gen1 A/V processors** (AVM 50 and compatible models) over a TCP-to-serial bridge.
+A Home Assistant custom integration for controlling **Anthem first-generation A/V receivers and processors** over a TCP-to-serial bridge. This is tested on an AVM-50V but should work with D2v and earlier AVM processors and contemporary MRX receivers.
 
 Anthem's newer IP-based receivers are supported by the built-in [`anthemav`](https://www.home-assistant.io/integrations/anthemav/) integration. This integration fills the gap for older models that communicate only via RS-232 serial.
 
@@ -14,8 +14,8 @@ Anthem's newer IP-based receivers are supported by the built-in [`anthemav`](htt
 
 | Model | Status |
 |---|---|
-| AVM 50 | Confirmed |
-| AVM 20, AVM 30 | Likely compatible — same Gen1 serial protocol |
+| AVM 50v | Confirmed |
+| AVM 20, AVM 30, AVM 40, AVM 50 | Likely compatible — same Gen1 serial protocol |
 | MRX 300, MRX 500, MRX 700 | Likely compatible |
 
 If you confirm compatibility with another model, please open an issue.
@@ -24,12 +24,11 @@ If you confirm compatibility with another model, please open an issue.
 
 ## Prerequisites
 
-- A **TCP-to-serial bridge** that exposes the AVM50's RS-232 port on your network. Common options:
-  - [ser2net](https://linux.die.net/man/8/ser2net) running on a Raspberry Pi or similar
+- A **TCP-to-serial bridge** that exposes the receiver's or processor's RS-232 port on your network. Common options:
+  - [WaveShare Serial Server](https://www.waveshare.com/rs232-485-422-to-poe-eth-b.htm)
   - [GlobalCache iTach](https://www.globalcache.com/products/itach/)
   - Any device that presents the serial port as a raw TCP socket
 - Home Assistant **2024.1.0** or later
-- The bridge configured for **115200 baud, 8N1**
 
 ---
 

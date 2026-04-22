@@ -559,6 +559,32 @@ async def test_tuner_am_frequency_parsed(hass, setup_integration):
     assert state.attributes.get("media_title") == "AM 530 kHz"
 
 
+async def test_tuner_mode_attribute_parsed(hass, setup_integration):
+    _, mock_client = setup_integration
+    on_message = mock_client._on_message
+
+    # Make tuner available first (HA omits extra_state_attributes for unavailable entities).
+    on_message("P1S0")
+    await hass.async_block_till_done()
+
+    on_message("TH0")
+    await hass.async_block_till_done()
+    assert hass.states.get(tuner_entity_id(hass)).attributes.get("tuner_mode") == "Stereo"
+
+    on_message("TH1")
+    await hass.async_block_till_done()
+    assert hass.states.get(tuner_entity_id(hass)).attributes.get("tuner_mode") == "Hi-blend"
+
+    on_message("TH2")
+    await hass.async_block_till_done()
+    assert hass.states.get(tuner_entity_id(hass)).attributes.get("tuner_mode") == "Mono"
+
+
+async def test_tuner_queries_mode_on_added_to_hass(hass, setup_integration):
+    _, mock_client = setup_integration
+    assert any(call.args == ("TH?",) for call in mock_client.send.call_args_list)
+
+
 async def test_tuner_next_track_sends_command(hass, setup_integration):
     _, mock_client = setup_integration
     on_message = mock_client._on_message
