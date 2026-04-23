@@ -1,5 +1,7 @@
 # Anthem A/V Gen1 Serial
 
+<img src="https://brands.home-assistant.io/anthemav/logo.png" alt="Anthem" width="200">
+
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
 [![HA Version](https://img.shields.io/badge/Home%20Assistant-2024.1.0+-blue.svg)](https://www.home-assistant.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
