@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, call
 import pytest
 
 from custom_components.anthemav_serial.const import DOMAIN, ZONE_MAIN, ZONE_2, ZONE_3
-from tests.conftest import ENTRY_DATA, MOCK_HOST, MOCK_PORT
 
 
 def remote_entity_id(hass, zone: int) -> str:

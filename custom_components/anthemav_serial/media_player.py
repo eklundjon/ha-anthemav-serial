@@ -18,6 +18,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .client import AnthemClient
 from .const import (
+    CONF_ID,
     CONF_MODEL,
     CONF_SW_VERSION,
     DOMAIN,
@@ -114,7 +115,7 @@ class MessageRouter:
         _LOGGER.warning("Unrouted message: %r", message)
 
     def connection_lost(self) -> None:
-        _LOGGER.warning("Lost connection to Anthem device at %s", self._client.host)
+        _LOGGER.warning("Lost connection to Anthem device at %s", self._client.url)
         for entity in self._all_entities:
             entity.mark_unavailable()
 
@@ -151,7 +152,7 @@ class AnthemZoneEntity(MediaPlayerEntity):
     def __init__(self, client: AnthemClient, zone: int, entry: ConfigEntry) -> None:
         self._client = client
         self.zone = zone
-        device_id = f"{client.host}:{client.port}"
+        device_id = entry.data[CONF_ID]
         self._attr_name = ZONE_NAMES[zone]
         self._attr_unique_id = f"{device_id}_zone{zone}"
         self._attr_device_info = DeviceInfo(
@@ -364,7 +365,7 @@ class AnthemTunerEntity(MediaPlayerEntity):
 
     def __init__(self, client: AnthemClient, entry: ConfigEntry) -> None:
         self._client = client
-        device_id = f"{client.host}:{client.port}"
+        device_id = entry.data[CONF_ID]
         self._attr_unique_id = f"{device_id}_tuner"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device_id)},

@@ -13,13 +13,17 @@ RECONNECT_DELAY = 5
 class AnthemClient:
     def __init__(
         self,
-        host: str,
-        port: int,
+        url: str,
+        baudrate: int,
         on_message: Callable[[str], None] | None = None,
         on_connection_lost: Callable[[], None] | None = None,
     ):
-        self.host = host
-        self.port = port
+        # url is any serialx URL: socket://host:port, rfc2217://host:port,
+        # esphome://host:port, or a native device path like /dev/ttyUSB0.
+        # baudrate only matters for native serial; serialx requires it but
+        # ignores it for the TCP-based schemes.
+        self.url = url
+        self.baudrate = baudrate
         self._on_message: Callable[[str], None] = on_message or (lambda _: None)
         self._on_connection_lost = on_connection_lost
         self._reader: asyncio.StreamReader | None = None
@@ -48,17 +52,12 @@ class AnthemClient:
     def connected(self) -> bool:
         return self._writer is not None and not self._writer.is_closing()
 
-    @property
-    def url(self) -> str:
-        """serialx URL for the IP-to-serial gateway (raw TCP socket)."""
-        return f"socket://{self.host}:{self.port}"
-
     async def connect(self) -> None:
         # serialx.open_serial_connection mirrors asyncio.open_connection and
         # returns the same (StreamReader, StreamWriter) pair, dispatching on
-        # the URL scheme (socket:// = raw TCP to the serial gateway).
+        # the URL scheme. baudrate is required by serialx for every scheme.
         self._reader, self._writer = await asyncio.wait_for(
-            serialx.open_serial_connection(url=self.url),
+            serialx.open_serial_connection(url=self.url, baudrate=self.baudrate),
             timeout=CONNECT_TIMEOUT,
         )
         _LOGGER.debug("Connected to %s", self.url)
@@ -113,7 +112,7 @@ class AnthemClient:
                 line = await self._reader.readline()
                 if not line:
                     # Connection closed by remote
-                    _LOGGER.warning("Connection closed by %s", self.host)
+                    _LOGGER.warning("Connection closed by %s", self.url)
                     break
                 message = line.decode().strip()
                 if message:
@@ -125,7 +124,7 @@ class AnthemClient:
             except asyncio.CancelledError:
                 break
             except Exception as err:
-                _LOGGER.error("Error reading from %s: %s", self.host, err)
+                _LOGGER.error("Error reading from %s: %s", self.url, err)
                 break
 
         if self._running and self._on_connection_lost:

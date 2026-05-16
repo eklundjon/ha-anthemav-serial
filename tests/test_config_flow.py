@@ -9,7 +9,17 @@ from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.anthemav_serial.const import DOMAIN, VOLUME_MAX, VOLUME_MIN
-from tests.conftest import MOCK_HOST, MOCK_PORT, MOCK_MODEL, MOCK_SW_VERSION, MOCK_IDENTITY, ENTRY_DATA
+from tests.conftest import (
+    ENTRY_DATA,
+    MOCK_BAUDRATE,
+    MOCK_HOST,
+    MOCK_ID,
+    MOCK_IDENTITY,
+    MOCK_MODEL,
+    MOCK_PORT,
+    MOCK_SW_VERSION,
+    MOCK_URL,
+)
 
 
 # ── Config flow (user step) ────────────────────────────────────────────────────
@@ -34,15 +44,18 @@ async def test_user_step_success_creates_entry(hass):
         return_value=mock_client,
     ):
         result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data={"host": MOCK_HOST, "port": MOCK_PORT}
+            DOMAIN, context={"source": "user"}, data={"url": MOCK_URL, "baudrate": MOCK_BAUDRATE}
         )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["title"] == MOCK_MODEL
-    assert result["data"]["host"] == MOCK_HOST
-    assert result["data"]["port"] == MOCK_PORT
+    assert result["data"]["url"] == MOCK_URL
+    assert result["data"]["baudrate"] == MOCK_BAUDRATE
     assert result["data"]["model"] == MOCK_MODEL
     assert result["data"]["sw_version"] == MOCK_SW_VERSION
+    # id is an opaque random token decoupled from the URL
+    assert result["data"]["id"]
+    assert result["result"].unique_id == result["data"]["id"]
 
 
 async def test_user_step_falls_back_to_default_name_when_identity_not_received(hass):
@@ -58,7 +71,7 @@ async def test_user_step_falls_back_to_default_name_when_identity_not_received(h
         return_value=mock_client,
     ):
         result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data={"host": MOCK_HOST, "port": MOCK_PORT}
+            DOMAIN, context={"source": "user"}, data={"url": MOCK_URL, "baudrate": MOCK_BAUDRATE}
         )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
@@ -77,7 +90,7 @@ async def test_user_step_cannot_connect_shows_error(hass):
         return_value=mock_client,
     ):
         result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data={"host": MOCK_HOST, "port": MOCK_PORT}
+            DOMAIN, context={"source": "user"}, data={"url": MOCK_URL, "baudrate": MOCK_BAUDRATE}
         )
 
     assert result["type"] == FlowResultType.FORM
@@ -94,7 +107,7 @@ async def test_user_step_timeout_shows_error(hass):
         return_value=mock_client,
     ):
         result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data={"host": MOCK_HOST, "port": MOCK_PORT}
+            DOMAIN, context={"source": "user"}, data={"url": MOCK_URL, "baudrate": MOCK_BAUDRATE}
         )
 
     assert result["type"] == FlowResultType.FORM
@@ -111,15 +124,16 @@ async def test_user_step_unknown_error_shows_error(hass):
         return_value=mock_client,
     ):
         result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data={"host": MOCK_HOST, "port": MOCK_PORT}
+            DOMAIN, context={"source": "user"}, data={"url": MOCK_URL, "baudrate": MOCK_BAUDRATE}
         )
 
     assert result["type"] == FlowResultType.FORM
     assert result["errors"] == {"base": "unknown"}
 
 
-async def test_user_step_aborts_if_already_configured(hass, config_entry):
-    # config_entry fixture already adds the entry to hass.
+async def test_user_step_allows_multiple_entries(hass, config_entry):
+    """No hardware serial number exists, so the id is random per flow run —
+    adding the same device again creates a second entry rather than aborting."""
     mock_client = MagicMock()
     mock_client.start = AsyncMock()
     mock_client.stop = AsyncMock()
@@ -130,11 +144,12 @@ async def test_user_step_aborts_if_already_configured(hass, config_entry):
         return_value=mock_client,
     ):
         result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data={"host": MOCK_HOST, "port": MOCK_PORT}
+            DOMAIN, context={"source": "user"}, data={"url": MOCK_URL, "baudrate": MOCK_BAUDRATE}
         )
 
-    assert result["type"] == FlowResultType.ABORT
-    assert result["reason"] == "already_configured"
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    # Distinct random id from the pre-existing config_entry fixture.
+    assert result["data"]["id"] != config_entry.unique_id
 
 
 # ── Options flow ───────────────────────────────────────────────────────────────
@@ -308,7 +323,8 @@ async def test_options_flow_uses_stored_time_format_without_querying(
         title=MOCK_MODEL,
         data=ENTRY_DATA,
         options={"time_format_24hr": True},
-        unique_id=f"{MOCK_HOST}:{MOCK_PORT}",
+        unique_id=MOCK_ID,
+        version=2,
     )
     entry.add_to_hass(hass)
 
@@ -321,3 +337,92 @@ async def test_options_flow_uses_stored_time_format_without_querying(
 
     await hass.config_entries.options.async_init(entry.entry_id)
     mock_client.query_one.assert_not_called()
+
+
+# ── Reconfigure flow ───────────────────────────────────────────────────────────
+
+async def test_reconfigure_updates_url_keeps_id(hass, config_entry):
+    """Reconfigure changes url/baudrate but preserves the stable id/unique_id."""
+    original_id = config_entry.data["id"]
+    original_unique_id = config_entry.unique_id
+
+    mock_client = MagicMock()
+    mock_client.start = AsyncMock()
+    mock_client.stop = AsyncMock()
+    mock_client.query_one = AsyncMock(return_value=MOCK_IDENTITY)
+
+    new_url = "esphome://10.0.0.5:6053"
+    with patch(
+        "custom_components.anthemav_serial.config_flow.AnthemClient",
+        return_value=mock_client,
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": "reconfigure", "entry_id": config_entry.entry_id},
+            data={"url": new_url, "baudrate": 19200},
+        )
+
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert config_entry.data["url"] == new_url
+    assert config_entry.data["baudrate"] == 19200
+    # Identity is unchanged — device & entities survive the URL change.
+    assert config_entry.data["id"] == original_id
+    assert config_entry.unique_id == original_unique_id
+
+
+async def test_reconfigure_connection_error_shows_form(hass, config_entry):
+    mock_client = MagicMock()
+    mock_client.start = AsyncMock(side_effect=OSError)
+    mock_client.stop = AsyncMock()
+
+    with patch(
+        "custom_components.anthemav_serial.config_flow.AnthemClient",
+        return_value=mock_client,
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": "reconfigure", "entry_id": config_entry.entry_id},
+            data={"url": "socket://bad:1", "baudrate": 9600},
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+    assert result["errors"] == {"base": "cannot_connect"}
+    # Entry untouched on failure.
+    assert config_entry.data["url"] == MOCK_URL
+
+
+# ── v1 → v2 migration ──────────────────────────────────────────────────────────
+
+async def test_migrate_v1_entry_to_v2(hass, mock_client):
+    """A legacy host/port entry migrates to url/baudrate, reusing host:port
+    as the stable id so existing entities keep their unique_ids."""
+    v1_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title=MOCK_MODEL,
+        data={
+            "host": MOCK_HOST,
+            "port": MOCK_PORT,
+            "model": MOCK_MODEL,
+            "sw_version": MOCK_SW_VERSION,
+        },
+        options={},
+        unique_id=f"{MOCK_HOST}:{MOCK_PORT}",
+        version=1,
+    )
+    v1_entry.add_to_hass(hass)
+
+    with (
+        patch("custom_components.anthemav_serial.AnthemClient", return_value=mock_client),
+        patch("custom_components.anthemav_serial.media_player.asyncio.sleep", AsyncMock()),
+    ):
+        await hass.config_entries.async_setup(v1_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert v1_entry.version == 2
+    assert v1_entry.data["id"] == f"{MOCK_HOST}:{MOCK_PORT}"
+    assert v1_entry.data["url"] == f"socket://{MOCK_HOST}:{MOCK_PORT}"
+    assert v1_entry.data["baudrate"] == 9600
+    assert "host" not in v1_entry.data and "port" not in v1_entry.data
+    assert v1_entry.unique_id == f"{MOCK_HOST}:{MOCK_PORT}"

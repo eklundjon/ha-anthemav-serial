@@ -3,8 +3,15 @@ DOMAIN = "anthemav_serial"
 DEFAULT_NAME = "Anthem AVM50"
 CONF_HOST = "host"
 CONF_PORT = "port"
+CONF_URL = "url"
+CONF_BAUDRATE = "baudrate"
+CONF_ID = "id"
 CONF_MODEL = "model"
 CONF_SW_VERSION = "sw_version"
+
+# Anthem Gen1 RS-232 default; only meaningful for native serial URLs
+# (ignored for socket://, rfc2217://, esphome://) but serialx requires it.
+DEFAULT_BAUDRATE = 9600
 
 CMD_TERMINATOR = "\n"
 

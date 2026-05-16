@@ -20,7 +20,7 @@ def _make_router():
     tuner = SimpleNamespace(
         handle_message=MagicMock(), notify_zone_source=MagicMock(), mark_unavailable=MagicMock()
     )
-    client = SimpleNamespace(last_command="P1P?", host="host")
+    client = SimpleNamespace(last_command="P1P?", url="socket://host:14000")
     all_entities = [*zones.values(), tuner]
     router = MessageRouter(zones, tuner, client, all_entities)
     return router, zones, tuner

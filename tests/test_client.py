@@ -27,8 +27,8 @@ def _make_stream(lines: list[bytes] | None = None):
 
 async def _connected_client(reader, writer, on_message=None, on_connection_lost=None):
     client = AnthemClient(
-        host="192.168.1.100",
-        port=14000,
+        url="socket://192.168.1.100:14000",
+        baudrate=9600,
         on_message=on_message or (lambda _: None),
         on_connection_lost=on_connection_lost,
     )
@@ -46,14 +46,14 @@ async def test_connect_opens_connection():
     with patch(
         "serialx.open_serial_connection", AsyncMock(return_value=(reader, writer))
     ) as mock_open:
-        client = AnthemClient("host", 14000, on_message=lambda _: None)
+        client = AnthemClient("socket://host:14000", 9600, on_message=lambda _: None)
         await client.connect()
-    mock_open.assert_called_once_with(url="socket://host:14000")
+    mock_open.assert_called_once_with(url="socket://host:14000", baudrate=9600)
     assert client.connected
 
 
 async def test_connect_timeout_raises():
-    client = AnthemClient("host", 14000, on_message=lambda _: None)
+    client = AnthemClient("socket://host:14000", 9600, on_message=lambda _: None)
     with patch("serialx.open_serial_connection", AsyncMock(side_effect=TimeoutError)):
         with pytest.raises(TimeoutError):
             await client.connect()
@@ -78,7 +78,7 @@ async def test_send_records_last_command():
 
 async def test_send_reconnects_when_not_connected():
     reader, writer = _make_stream()
-    client = AnthemClient("host", 14000, on_message=lambda _: None)
+    client = AnthemClient("socket://host:14000", 9600, on_message=lambda _: None)
     # No prior connect — send should open the connection automatically.
     with patch("serialx.open_serial_connection", AsyncMock(return_value=(reader, writer))):
         await client.send("P1P?")
