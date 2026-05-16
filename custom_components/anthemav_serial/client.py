@@ -13,12 +13,12 @@ class AnthemClient:
         self,
         host: str,
         port: int,
-        on_message: Callable[[str], None],
+        on_message: Callable[[str], None] | None = None,
         on_connection_lost: Callable[[], None] | None = None,
     ):
         self.host = host
         self.port = port
-        self._on_message = on_message
+        self._on_message: Callable[[str], None] = on_message or (lambda _: None)
         self._on_connection_lost = on_connection_lost
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
@@ -27,6 +27,20 @@ class AnthemClient:
         self._running = False
         self.last_command: str = ""
         self._pending_queries: dict[str, asyncio.Future[str]] = {}
+
+    def set_handlers(
+        self,
+        on_message: Callable[[str], None],
+        on_connection_lost: Callable[[], None] | None = None,
+    ) -> None:
+        """Set the message / connection-lost handlers after construction.
+
+        Used by the media_player platform to wire the central message router
+        once entities exist. Keeps the constructor's callback optional.
+        """
+        self._on_message = on_message
+        if on_connection_lost is not None:
+            self._on_connection_lost = on_connection_lost
 
     @property
     def connected(self) -> bool:

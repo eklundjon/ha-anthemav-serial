@@ -3,6 +3,8 @@ DOMAIN = "anthemav_serial"
 DEFAULT_NAME = "Anthem AVM50"
 CONF_HOST = "host"
 CONF_PORT = "port"
+CONF_MODEL = "model"
+CONF_SW_VERSION = "sw_version"
 
 CMD_TERMINATOR = "\n"
 

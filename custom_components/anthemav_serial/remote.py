@@ -12,8 +12,15 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .client import AnthemClient
-from .config_flow import CONF_MODEL, CONF_SW_VERSION
-from .const import DOMAIN, SOURCES, ZONE_MAIN, ZONE_2, ZONE_3
+from .const import (
+    CONF_MODEL,
+    CONF_SW_VERSION,
+    DOMAIN,
+    SOURCES,
+    ZONE_MAIN,
+    ZONE_2,
+    ZONE_3,
+)
 
 _LOGGER = logging.getLogger(__name__)
 

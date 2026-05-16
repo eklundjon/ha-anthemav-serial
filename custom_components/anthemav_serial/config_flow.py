@@ -11,10 +11,15 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .client import AnthemClient
-from .const import DEFAULT_NAME, DOMAIN, SOURCES, VOLUME_MAX, VOLUME_MIN
-
-CONF_MODEL = "model"
-CONF_SW_VERSION = "sw_version"
+from .const import (
+    CONF_MODEL,
+    CONF_SW_VERSION,
+    DEFAULT_NAME,
+    DOMAIN,
+    SOURCES,
+    VOLUME_MAX,
+    VOLUME_MIN,
+)
 
 _IDENTITY_RE = re.compile(r"^(.+?)\s+(v\d+\.\S+)\s+(.+)$")
 
@@ -93,7 +98,7 @@ class AnthemSerialConfigFlow(ConfigFlow, domain=DOMAIN):
             self._abort_if_unique_id_configured()
 
             try:
-                client = AnthemClient(host=host, port=port, on_message=lambda _: None)
+                client = AnthemClient(host=host, port=port)
                 await client.start()
                 identity = await client.query_one("?", "")
                 await client.stop()

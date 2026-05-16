@@ -19,10 +19,11 @@ _PYTHON_TO_ANTHEM_DAY = [2, 3, 4, 5, 6, 7, 1]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    # Handlers are wired by media_player.async_setup_entry via set_handlers()
+    # once the entities exist.
     client = AnthemClient(
         host=entry.data[CONF_HOST],
         port=entry.data[CONF_PORT],
-        on_message=lambda _: None,  # replaced by media_player.async_setup_entry
     )
     await client.start()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = client

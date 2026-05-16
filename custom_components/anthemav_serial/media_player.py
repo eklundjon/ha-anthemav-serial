@@ -17,8 +17,9 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .client import AnthemClient
-from .config_flow import CONF_MODEL, CONF_SW_VERSION
 from .const import (
+    CONF_MODEL,
+    CONF_SW_VERSION,
     DOMAIN,
     NON_QUERYABLE_SUFFIXES,
     SOURCES,
@@ -59,6 +60,65 @@ def _effective_sources(entry: ConfigEntry) -> dict[str, str]:
     }
 
 
+class MessageRouter:
+    """Routes raw device messages to the appropriate entity.
+
+    Extracted from async_setup_entry so it can be unit-tested directly
+    instead of only through client._on_message.
+    """
+
+    _ZONE_OFF = {"Main Off": ZONE_MAIN, "Zone2 Off": ZONE_2, "Zone3 Off": ZONE_3}
+
+    def __init__(
+        self,
+        zone_map: dict[int, AnthemZoneEntity],
+        tuner: AnthemTunerEntity,
+        client: AnthemClient,
+        all_entities: list[MediaPlayerEntity],
+    ) -> None:
+        self._zone_map = zone_map
+        self._tuner = tuner
+        self._client = client
+        self._all_entities = all_entities
+
+    def dispatch(self, message: str) -> None:
+        _LOGGER.debug("RX: %r", message)
+        for zone, entity in self._zone_map.items():
+            if message.startswith(f"P{zone}"):
+                entity.handle_message(message)
+                self._tuner.notify_zone_source(zone, entity.source_id)
+                return
+        if message.startswith("H"):
+            _LOGGER.debug("Headphone message (entity disabled): %r", message)
+            return
+        if message.startswith("TAT") or message.startswith("TFT") or message.startswith("TH"):
+            self._tuner.handle_message(message)
+            return
+        if message.startswith("P4"):
+            _LOGGER.debug("Zone 4 (rec) message ignored: %r", message)
+            return
+        if re.match(r"^E\d+$", message):
+            _LOGGER.debug("Device error code: %s", message)
+            return
+        if message in self._ZONE_OFF:
+            self._zone_map[self._ZONE_OFF[message]].handle_message(message)
+            return
+        if message == "Unit Off":
+            _LOGGER.debug("Device status: %s", message)
+            return
+        if message in ("Invalid Command", "Parameter Out-of-range"):
+            _LOGGER.warning(
+                "Device returned %r (last sent: %r)", message, self._client.last_command
+            )
+            return
+        _LOGGER.warning("Unrouted message: %r", message)
+
+    def connection_lost(self) -> None:
+        _LOGGER.warning("Lost connection to Anthem device at %s", self._client.host)
+        for entity in self._all_entities:
+            entity.mark_unavailable()
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -72,44 +132,8 @@ async def async_setup_entry(
     tuner = AnthemTunerEntity(client, entry)
     all_entities = [*zone_entities, tuner]
 
-    def on_message(message: str) -> None:
-        _LOGGER.debug("RX: %r", message)
-        for zone, entity in zone_map.items():
-            if message.startswith(f"P{zone}"):
-                entity.handle_message(message)
-                tuner.notify_zone_source(zone, entity._source_id)
-                return
-        if message.startswith("H"):
-            _LOGGER.debug("Headphone message (entity disabled): %r", message)
-            return
-        if message.startswith("TAT") or message.startswith("TFT") or message.startswith("TH"):
-            tuner.handle_message(message)
-            return
-        if message.startswith("P4"):
-            _LOGGER.debug("Zone 4 (rec) message ignored: %r", message)
-            return
-        if re.match(r"^E\d+$", message):
-            _LOGGER.debug("Device error code: %s", message)
-            return
-        _ZONE_OFF = {"Main Off": ZONE_MAIN, "Zone2 Off": ZONE_2, "Zone3 Off": ZONE_3}
-        if message in _ZONE_OFF:
-            zone_map[_ZONE_OFF[message]].handle_message(message)
-            return
-        if message == "Unit Off":
-            _LOGGER.debug("Device status: %s", message)
-            return
-        if message in ("Invalid Command", "Parameter Out-of-range"):
-            _LOGGER.warning("Device returned %r (last sent: %r)", message, client.last_command)
-            return
-        _LOGGER.warning("Unrouted message: %r", message)
-
-    def on_connection_lost() -> None:
-        _LOGGER.warning("Lost connection to Anthem device at %s", client.host)
-        for entity in all_entities:
-            entity.mark_unavailable()
-
-    client._on_message = on_message
-    client._on_connection_lost = on_connection_lost
+    router = MessageRouter(zone_map, tuner, client, all_entities)
+    client.set_handlers(router.dispatch, router.connection_lost)
 
     async_add_entities(all_entities)
 
@@ -278,6 +302,14 @@ class AnthemZoneEntity(MediaPlayerEntity):
             self.async_write_ha_state()
         elif not changed:
             _LOGGER.warning("Zone %s: unrecognized message %r", self.zone, message)
+
+    @property
+    def source_id(self) -> str | None:
+        """Active source character (e.g. '5'), or None if unknown.
+
+        Public accessor for the message router / tuner entity.
+        """
+        return self._source_id
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

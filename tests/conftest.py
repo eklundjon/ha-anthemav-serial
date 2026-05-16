@@ -55,6 +55,15 @@ def mock_client():
     client._on_message = None
     client._on_connection_lost = None
     client._pending_queries = {}
+
+    # Mirror the real set_handlers(): store handlers so tests can drive routing
+    # via client._on_message / client._on_connection_lost after setup.
+    def _set_handlers(on_message, on_connection_lost=None):
+        client._on_message = on_message
+        if on_connection_lost is not None:
+            client._on_connection_lost = on_connection_lost
+
+    client.set_handlers = MagicMock(side_effect=_set_handlers)
     return client
 
 
