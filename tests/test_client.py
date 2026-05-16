@@ -32,7 +32,9 @@ async def _connected_client(reader, writer, on_message=None, on_connection_lost=
         on_message=on_message or (lambda _: None),
         on_connection_lost=on_connection_lost,
     )
-    with patch("asyncio.open_connection", AsyncMock(return_value=(reader, writer))):
+    with patch(
+        "serialx.open_serial_connection", AsyncMock(return_value=(reader, writer))
+    ):
         await client.connect()
     return client
 
@@ -41,16 +43,18 @@ async def _connected_client(reader, writer, on_message=None, on_connection_lost=
 
 async def test_connect_opens_connection():
     reader, writer = _make_stream()
-    with patch("asyncio.open_connection", AsyncMock(return_value=(reader, writer))) as mock_open:
+    with patch(
+        "serialx.open_serial_connection", AsyncMock(return_value=(reader, writer))
+    ) as mock_open:
         client = AnthemClient("host", 14000, on_message=lambda _: None)
         await client.connect()
-    mock_open.assert_called_once_with("host", 14000)
+    mock_open.assert_called_once_with(url="socket://host:14000")
     assert client.connected
 
 
 async def test_connect_timeout_raises():
     client = AnthemClient("host", 14000, on_message=lambda _: None)
-    with patch("asyncio.open_connection", AsyncMock(side_effect=TimeoutError)):
+    with patch("serialx.open_serial_connection", AsyncMock(side_effect=TimeoutError)):
         with pytest.raises(TimeoutError):
             await client.connect()
 
@@ -76,7 +80,7 @@ async def test_send_reconnects_when_not_connected():
     reader, writer = _make_stream()
     client = AnthemClient("host", 14000, on_message=lambda _: None)
     # No prior connect — send should open the connection automatically.
-    with patch("asyncio.open_connection", AsyncMock(return_value=(reader, writer))):
+    with patch("serialx.open_serial_connection", AsyncMock(return_value=(reader, writer))):
         await client.send("P1P?")
     writer.write.assert_called_once_with(b"P1P?\n")
 

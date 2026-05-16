@@ -2,6 +2,8 @@ import asyncio
 import logging
 from collections.abc import Callable
 
+import serialx
+
 _LOGGER = logging.getLogger(__name__)
 
 CONNECT_TIMEOUT = 10
@@ -46,12 +48,20 @@ class AnthemClient:
     def connected(self) -> bool:
         return self._writer is not None and not self._writer.is_closing()
 
+    @property
+    def url(self) -> str:
+        """serialx URL for the IP-to-serial gateway (raw TCP socket)."""
+        return f"socket://{self.host}:{self.port}"
+
     async def connect(self) -> None:
+        # serialx.open_serial_connection mirrors asyncio.open_connection and
+        # returns the same (StreamReader, StreamWriter) pair, dispatching on
+        # the URL scheme (socket:// = raw TCP to the serial gateway).
         self._reader, self._writer = await asyncio.wait_for(
-            asyncio.open_connection(self.host, self.port),
+            serialx.open_serial_connection(url=self.url),
             timeout=CONNECT_TIMEOUT,
         )
-        _LOGGER.debug("Connected to %s:%s", self.host, self.port)
+        _LOGGER.debug("Connected to %s", self.url)
 
     async def start(self) -> None:
         """Connect and begin listening for unsolicited messages."""
