@@ -33,6 +33,13 @@ def cmd_volume(zone: int, db: float) -> str:
         db_rounded = round(db / 1.25) * 1.25  # 1.25 dB steps (zones 2/3)
         return f"P{zone}V{db_rounded:+.2f}"
 
+def cmd_volume_up(zone: int) -> str:
+    # One native step (0.5 dB on zone 1, 1.25 dB on zones 2/3).
+    return f"P{zone}VMU" if zone == ZONE_MAIN else f"P{zone}VU"
+
+def cmd_volume_down(zone: int) -> str:
+    return f"P{zone}VMD" if zone == ZONE_MAIN else f"P{zone}VD"
+
 def cmd_mute(zone: int, mute: bool) -> str:
     return f"P{zone}M{1 if mute else 0}"
 
