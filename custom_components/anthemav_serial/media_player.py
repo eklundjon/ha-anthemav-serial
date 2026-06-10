@@ -36,6 +36,8 @@ from .const import (
     cmd_power,
     cmd_source,
     cmd_volume,
+    cmd_volume_down,
+    cmd_volume_up,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -156,6 +158,7 @@ class AnthemZoneEntity(MediaPlayerEntity):
         MediaPlayerEntityFeature.TURN_ON
         | MediaPlayerEntityFeature.TURN_OFF
         | MediaPlayerEntityFeature.VOLUME_SET
+        | MediaPlayerEntityFeature.VOLUME_STEP
         | MediaPlayerEntityFeature.VOLUME_MUTE
         | MediaPlayerEntityFeature.SELECT_SOURCE
     )
@@ -358,6 +361,13 @@ class AnthemZoneEntity(MediaPlayerEntity):
     async def async_set_volume_level(self, volume: float) -> None:
         db = volume * (self._vol_max - self._vol_min) + self._vol_min
         await self._client.send(cmd_volume(self.zone, db))
+
+    async def async_volume_up(self) -> None:
+        # Use the device's native step rather than the base class's 10% nudge.
+        await self._client.send(cmd_volume_up(self.zone))
+
+    async def async_volume_down(self) -> None:
+        await self._client.send(cmd_volume_down(self.zone))
 
     async def async_mute_volume(self, mute: bool) -> None:
         await self._client.send(cmd_mute(self.zone, mute))

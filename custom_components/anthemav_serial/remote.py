@@ -21,6 +21,8 @@ from .const import (
     ZONE_MAIN,
     ZONE_2,
     ZONE_3,
+    cmd_volume_down,
+    cmd_volume_up,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -53,9 +55,9 @@ def _resolve_command(zone: int, cmd: str) -> str | None:
       source_{key}              — e.g. source_0 (CD), source_5 (DVD1)
     """
     if cmd == "volume_up":
-        return f"P{zone}VMU" if zone == ZONE_MAIN else f"P{zone}VU"
+        return cmd_volume_up(zone)
     if cmd == "volume_down":
-        return f"P{zone}VMD" if zone == ZONE_MAIN else f"P{zone}VD"
+        return cmd_volume_down(zone)
     if cmd == "mute_toggle":
         return f"P{zone}MT"
     if cmd == "source_seek_up":

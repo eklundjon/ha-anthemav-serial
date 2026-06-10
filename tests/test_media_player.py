@@ -4,7 +4,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from homeassistant.components.media_player import MediaPlayerState
+from homeassistant.components.media_player import MediaPlayerEntityFeature, MediaPlayerState
 from homeassistant.helpers import entity_registry as er
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -55,6 +55,15 @@ async def test_four_entities_created(hass, setup_integration):
     assert f"{prefix}_zone2" in uids
     assert f"{prefix}_zone3" in uids
     assert f"{prefix}_tuner" in uids
+
+
+async def test_zone_supports_volume_step(hass, setup_integration):
+    """VOLUME_STEP must be advertised so the media card shows volume buttons."""
+    on_message = setup_integration[1]._on_message
+    on_message("P1P1")
+    await hass.async_block_till_done()
+    state = hass.states.get(zone_entity_id(hass, ZONE_MAIN))
+    assert state.attributes["supported_features"] & MediaPlayerEntityFeature.VOLUME_STEP
 
 
 async def test_zones_start_unavailable(hass, setup_integration):
@@ -410,6 +419,49 @@ async def test_set_volume_level_zone2_uses_v_format(hass, setup_integration):
     sent = mock_client.send.call_args[0][0]
     # Zone 2 uses P2V (no M) with 1.25 dB steps
     assert sent.startswith("P2V") and "VM" not in sent
+
+
+async def test_volume_up_zone1_uses_native_step(hass, setup_integration):
+    _, mock_client = setup_integration
+    on_message = mock_client._on_message
+    on_message("P1P1")
+    await hass.async_block_till_done()
+    mock_client.send.reset_mock()
+
+    entity_id = zone_entity_id(hass, ZONE_MAIN)
+    await hass.services.async_call(
+        "media_player", "volume_up", {"entity_id": entity_id}, blocking=True,
+    )
+    mock_client.send.assert_called_once_with("P1VMU")
+
+
+async def test_volume_down_zone1_uses_native_step(hass, setup_integration):
+    _, mock_client = setup_integration
+    on_message = mock_client._on_message
+    on_message("P1P1")
+    await hass.async_block_till_done()
+    mock_client.send.reset_mock()
+
+    entity_id = zone_entity_id(hass, ZONE_MAIN)
+    await hass.services.async_call(
+        "media_player", "volume_down", {"entity_id": entity_id}, blocking=True,
+    )
+    mock_client.send.assert_called_once_with("P1VMD")
+
+
+async def test_volume_up_zone2_uses_zone_step_command(hass, setup_integration):
+    _, mock_client = setup_integration
+    on_message = mock_client._on_message
+    on_message("P2P1")
+    await hass.async_block_till_done()
+    mock_client.send.reset_mock()
+
+    entity_id = zone_entity_id(hass, ZONE_2)
+    await hass.services.async_call(
+        "media_player", "volume_up", {"entity_id": entity_id}, blocking=True,
+    )
+    # Zones 2/3 use VU/VD (no M).
+    mock_client.send.assert_called_once_with("P2VU")
 
 
 async def test_mute_sends_mute_command(hass, setup_integration):
