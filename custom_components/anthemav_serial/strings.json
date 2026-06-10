@@ -66,10 +66,10 @@
           "source_i": "TV4",
           "source_j": "SAT2"
         }
-      },
-      "error": {
-        "vol_min_not_below_max": "Each zone's minimum volume must be below its maximum"
       }
+    },
+    "error": {
+      "vol_min_not_below_max": "Each zone's minimum volume must be below its maximum"
     }
   }
 }
