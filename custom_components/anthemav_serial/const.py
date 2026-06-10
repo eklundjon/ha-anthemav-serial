@@ -61,6 +61,16 @@ SOURCES = {
     "j": "SAT2",
 }
 
+# "c" (current) is a meta value the device accepts as a "recall current source"
+# command and can echo back, but it is not a real selectable input. Keep it in
+# SOURCES for message parsing, but exclude it from anything user-facing.
+META_SOURCE_KEYS: frozenset[str] = frozenset({"c"})
+
+# Real, user-selectable inputs (source picker + options-flow rename/hide UI).
+SELECTABLE_SOURCES: dict[str, str] = {
+    idx: name for idx, name in SOURCES.items() if idx not in META_SOURCE_KEYS
+}
+
 VOLUME_MIN = -95.5
 VOLUME_MAX = 31.5
 

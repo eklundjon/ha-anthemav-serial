@@ -73,3 +73,14 @@ def test_connection_lost_marks_all_unavailable():
     for z in zones.values():
         z.mark_unavailable.assert_called_once()
     tuner.mark_unavailable.assert_called_once()
+
+
+def test_connection_restored_refreshes_all():
+    router, zones, tuner = _make_router()
+    for z in zones.values():
+        z.request_refresh = MagicMock()
+    tuner.request_refresh = MagicMock()
+    router.connection_restored()
+    for z in zones.values():
+        z.request_refresh.assert_called_once()
+    tuner.request_refresh.assert_called_once()

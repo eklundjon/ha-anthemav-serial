@@ -23,7 +23,7 @@ from .const import (
     CONF_SW_VERSION,
     DOMAIN,
     NON_QUERYABLE_SUFFIXES,
-    SOURCES,
+    SELECTABLE_SOURCES,
     VOLUME_MAX,
     VOLUME_MIN,
     ZONE_1_ONLY_QUERY_SUFFIXES,
@@ -56,7 +56,7 @@ def _effective_sources(entry: ConfigEntry) -> dict[str, str]:
     hidden = set(entry.options.get("hidden_sources", []))
     return {
         idx: entry.options.get(f"source_{idx}", default_name)
-        for idx, default_name in SOURCES.items()
+        for idx, default_name in SELECTABLE_SOURCES.items()
         if idx not in hidden
     }
 
@@ -119,6 +119,15 @@ class MessageRouter:
         for entity in self._all_entities:
             entity.mark_unavailable()
 
+    def connection_restored(self) -> None:
+        # The device only pushes on change, so after a reconnect we must
+        # actively re-query each entity to repopulate state.
+        _LOGGER.info(
+            "Reconnected to Anthem device at %s; refreshing state", self._client.url
+        )
+        for entity in self._all_entities:
+            entity.request_refresh()
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -134,7 +143,9 @@ async def async_setup_entry(
     all_entities = [*zone_entities, tuner]
 
     router = MessageRouter(zone_map, tuner, client, all_entities)
-    client.set_handlers(router.dispatch, router.connection_lost)
+    client.set_handlers(
+        router.dispatch, router.connection_lost, router.connection_restored
+    )
 
     async_add_entities(all_entities)
 
@@ -166,6 +177,7 @@ class AnthemZoneEntity(MediaPlayerEntity):
         self._vol_max: float = entry.options.get(f"zone{zone}_vol_max", VOLUME_MAX)
 
         self._attr_available = False
+        self._extra_attr_query_active = False
         self._attr_state: MediaPlayerState | None = None
         self._attr_volume_level: float | None = None
         self._attr_is_volume_muted: bool | None = None
@@ -187,30 +199,44 @@ class AnthemZoneEntity(MediaPlayerEntity):
 
     async def async_added_to_hass(self) -> None:
         """Request current state from the device on startup."""
-        await self._client.send(f"P{self.zone}P?;P{self.zone}?")
+        self.request_refresh()
+
+    def request_refresh(self) -> None:
+        """(Re)request current state. Called on startup and after a reconnect."""
+        if not self.hass:
+            return
+        self.hass.async_create_task(self._client.send(f"P{self.zone}P?;P{self.zone}?"))
         self.hass.async_create_task(self._async_query_extra_attrs())
 
     async def _async_query_extra_attrs(self) -> None:
         """Send extra attribute queries in batched stacks after a staggered delay.
 
         Each zone waits zone*2 seconds so all three don't flood the device at once.
-        The device's 32-byte incoming buffer overflows if multiple zones query
-        simultaneously.
+        The device's 64-byte incoming buffer overflows if multiple zones query
+        simultaneously. A per-zone guard prevents overlapping bursts when both
+        startup and a power-on message trigger a query at once.
         """
-        await asyncio.sleep(self.zone * 2)
-        if self._attr_state != MediaPlayerState.ON:
-            _LOGGER.debug("Zone %s is off — skipping extra attr queries", self.zone)
+        if self._extra_attr_query_active:
+            _LOGGER.debug("Zone %s: extra-attr query already in flight — skipping", self.zone)
             return
-        suffixes = [
-            suffix for _, suffix, _, _ in ZONE_EXTRA_ATTRS
-            if suffix not in NON_QUERYABLE_SUFFIXES
-            and (self.zone == ZONE_MAIN or suffix not in ZONE_1_ONLY_QUERY_SUFFIXES)
-            and (self.zone != ZONE_MAIN or suffix not in ZONE_23_ONLY_QUERY_SUFFIXES)
-        ]
-        for i in range(0, len(suffixes), 5):
-            batch = ";".join(f"P{self.zone}{s}?" for s in suffixes[i:i + 5])
-            await self._client.send(batch)
-            await asyncio.sleep(0.5)
+        self._extra_attr_query_active = True
+        try:
+            await asyncio.sleep(self.zone * 2)
+            if self._attr_state != MediaPlayerState.ON:
+                _LOGGER.debug("Zone %s is off — skipping extra attr queries", self.zone)
+                return
+            suffixes = [
+                suffix for _, suffix, _, _ in ZONE_EXTRA_ATTRS
+                if suffix not in NON_QUERYABLE_SUFFIXES
+                and (self.zone == ZONE_MAIN or suffix not in ZONE_1_ONLY_QUERY_SUFFIXES)
+                and (self.zone != ZONE_MAIN or suffix not in ZONE_23_ONLY_QUERY_SUFFIXES)
+            ]
+            for i in range(0, len(suffixes), 5):
+                batch = ";".join(f"P{self.zone}{s}?" for s in suffixes[i:i + 5])
+                await self._client.send(batch)
+                await asyncio.sleep(0.5)
+        finally:
+            self._extra_attr_query_active = False
 
     def handle_message(self, message: str) -> None:
         """Parse a push status message and update entity state."""
@@ -400,7 +426,12 @@ class AnthemTunerEntity(MediaPlayerEntity):
     _TH_MODES = {"0": "Stereo", "1": "Hi-blend", "2": "Mono"}
 
     async def async_added_to_hass(self) -> None:
-        await self._client.send("TH?")
+        self.request_refresh()
+
+    def request_refresh(self) -> None:
+        """(Re)query tuner mode. Called on startup and after a reconnect."""
+        if self.hass:
+            self.hass.async_create_task(self._client.send("TH?"))
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

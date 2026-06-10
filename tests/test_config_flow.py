@@ -178,7 +178,6 @@ async def test_options_flow_saves_source_names(hass, setup_integration):
             "source_7": "SAT1",
             "source_8": "VCR",
             "source_9": "AUX",
-            "source_c": "current",
             "source_d": "DVD2",
             "source_e": "DVD3",
             "source_f": "DVD4",
@@ -210,7 +209,7 @@ async def test_options_flow_saves_hidden_sources(hass, setup_integration):
         for k, v in [
             ("0", "CD"), ("1", "2-Ch BAL"), ("2", "6-Ch SE"), ("3", "Tape"),
             ("4", "Tuner"), ("5", "DVD1"), ("6", "TV1"), ("7", "SAT1"),
-            ("8", "VCR"), ("9", "AUX"), ("c", "current"), ("d", "DVD2"),
+            ("8", "VCR"), ("9", "AUX"), ("d", "DVD2"),
             ("e", "DVD3"), ("f", "DVD4"), ("g", "TV2"), ("h", "TV3"),
             ("i", "TV4"), ("j", "SAT2"),
         ]
@@ -242,7 +241,7 @@ async def test_options_flow_saves_vol_limits(hass, setup_integration):
         for k, v in [
             ("0", "CD"), ("1", "2-Ch BAL"), ("2", "6-Ch SE"), ("3", "Tape"),
             ("4", "Tuner"), ("5", "DVD1"), ("6", "TV1"), ("7", "SAT1"),
-            ("8", "VCR"), ("9", "AUX"), ("c", "current"), ("d", "DVD2"),
+            ("8", "VCR"), ("9", "AUX"), ("d", "DVD2"),
             ("e", "DVD3"), ("f", "DVD4"), ("g", "TV2"), ("h", "TV3"),
             ("i", "TV4"), ("j", "SAT2"),
         ]
@@ -264,6 +263,40 @@ async def test_options_flow_saves_vol_limits(hass, setup_integration):
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert config_entry.options["zone1_vol_min"] == -70.0
     assert config_entry.options["zone1_vol_max"] == 0.0
+
+
+async def test_options_flow_rejects_inverted_vol_limits(hass, setup_integration):
+    """A zone whose min >= max is rejected with a form error, not saved."""
+    config_entry, mock_client = setup_integration
+    await hass.config_entries.options.async_init(config_entry.entry_id)
+
+    user_input = {
+        f"source_{k}": v
+        for k, v in [
+            ("0", "CD"), ("1", "2-Ch BAL"), ("2", "6-Ch SE"), ("3", "Tape"),
+            ("4", "Tuner"), ("5", "DVD1"), ("6", "TV1"), ("7", "SAT1"),
+            ("8", "VCR"), ("9", "AUX"), ("d", "DVD2"),
+            ("e", "DVD3"), ("f", "DVD4"), ("g", "TV2"), ("h", "TV3"),
+            ("i", "TV4"), ("j", "SAT2"),
+        ]
+    }
+    user_input["hidden_sources"] = []
+    user_input["zone1_vol_min"] = 0.0    # min >= max → invalid
+    user_input["zone1_vol_max"] = -10.0
+    user_input["zone2_vol_min"] = VOLUME_MIN
+    user_input["zone2_vol_max"] = VOLUME_MAX
+    user_input["zone3_vol_min"] = VOLUME_MIN
+    user_input["zone3_vol_max"] = VOLUME_MAX
+    user_input["time_format_24hr"] = False
+
+    result = await hass.config_entries.options.async_configure(
+        hass.config_entries.options.async_progress()[0]["flow_id"],
+        user_input=user_input,
+    )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"] == {"base": "vol_min_not_below_max"}
+    assert "zone1_vol_min" not in config_entry.options
 
 
 async def test_options_flow_queries_device_for_time_format_on_first_open(
@@ -296,7 +329,7 @@ async def test_options_flow_falls_back_to_12hr_on_query_timeout(
             **{f"source_{k}": v for k, v in [
                 ("0", "CD"), ("1", "2-Ch BAL"), ("2", "6-Ch SE"), ("3", "Tape"),
                 ("4", "Tuner"), ("5", "DVD1"), ("6", "TV1"), ("7", "SAT1"),
-                ("8", "VCR"), ("9", "AUX"), ("c", "current"), ("d", "DVD2"),
+                ("8", "VCR"), ("9", "AUX"), ("d", "DVD2"),
                 ("e", "DVD3"), ("f", "DVD4"), ("g", "TV2"), ("h", "TV3"),
                 ("i", "TV4"), ("j", "SAT2"),
             ]},

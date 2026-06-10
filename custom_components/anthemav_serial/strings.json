@@ -58,7 +58,6 @@
           "source_7": "SAT1",
           "source_8": "VCR",
           "source_9": "AUX",
-          "source_c": "current",
           "source_d": "DVD2",
           "source_e": "DVD3",
           "source_f": "DVD4",
@@ -67,6 +66,9 @@
           "source_i": "TV4",
           "source_j": "SAT2"
         }
+      },
+      "error": {
+        "vol_min_not_below_max": "Each zone's minimum volume must be below its maximum"
       }
     }
   }

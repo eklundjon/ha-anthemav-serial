@@ -20,7 +20,7 @@ from .const import (
     DEFAULT_BAUDRATE,
     DEFAULT_NAME,
     DOMAIN,
-    SOURCES,
+    SELECTABLE_SOURCES,
     VOLUME_MAX,
     VOLUME_MIN,
 )
@@ -37,7 +37,9 @@ async def _probe(url: str, baudrate: int) -> tuple[str, str | None]:
     client = AnthemClient(url=url, baudrate=baudrate)
     await client.start()
     try:
-        identity = await client.query_one("?", "")
+        # Match only a line shaped like the identity string, so an unsolicited
+        # status push arriving first isn't mistaken for the reply.
+        identity = await client.query_one("?", match=lambda msg: bool(_IDENTITY_RE.match(msg)))
     finally:
         await client.stop()
 
@@ -78,13 +80,13 @@ def _options_schema(
         {
             **{
                 vol.Optional(f"source_{idx}", default=current_names[idx]): str
-                for idx in sorted(SOURCES)
+                for idx in sorted(SELECTABLE_SOURCES)
             },
             vol.Optional("hidden_sources", default=hidden): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=[
                         {"value": idx, "label": current_names[idx]}
-                        for idx in sorted(SOURCES)
+                        for idx in sorted(SELECTABLE_SOURCES)
                     ],
                     multiple=True,
                 )
@@ -201,24 +203,39 @@ class AnthemSerialOptionsFlow(OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
+            # A zone whose min >= max would make the volume scaling divide by
+            # zero (or invert) in the media_player, so reject it here.
+            if any(
+                user_input.get(f"zone{z}_vol_min", VOLUME_MIN)
+                >= user_input.get(f"zone{z}_vol_max", VOLUME_MAX)
+                for z in (1, 2, 3)
+            ):
+                errors["base"] = "vol_min_not_below_max"
+            else:
+                return self.async_create_entry(data=user_input)
+
+        # On a validation re-show, prefill from the rejected input so the user's
+        # edits survive; otherwise from saved options.
+        prefill = user_input if user_input is not None else self.config_entry.options
 
         current_names = {
-            idx: self.config_entry.options.get(f"source_{idx}", default_name)
-            for idx, default_name in SOURCES.items()
+            idx: prefill.get(f"source_{idx}", default_name)
+            for idx, default_name in SELECTABLE_SOURCES.items()
         }
-        hidden = self.config_entry.options.get("hidden_sources", [])
+        hidden = prefill.get("hidden_sources", [])
 
-        if "time_format_24hr" in self.config_entry.options:
-            time_format_24hr: bool = self.config_entry.options["time_format_24hr"]
+        if "time_format_24hr" in prefill:
+            time_format_24hr: bool = prefill["time_format_24hr"]
         else:
             # Query the device for its current clock format setting.
             client = self.hass.data[DOMAIN][self.config_entry.entry_id]
             response = await client.query_one("STF?", "STF")
             time_format_24hr = response == "STF1" if response is not None else False
         vol_limits = {
-            key: self.config_entry.options.get(key, default)
+            key: prefill.get(key, default)
             for key, default in [
                 ("zone1_vol_min", VOLUME_MIN), ("zone1_vol_max", VOLUME_MAX),
                 ("zone2_vol_min", VOLUME_MIN), ("zone2_vol_max", VOLUME_MAX),
@@ -229,4 +246,5 @@ class AnthemSerialOptionsFlow(OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=_options_schema(current_names, hidden, vol_limits, time_format_24hr),
+            errors=errors,
         )

@@ -58,14 +58,17 @@ def mock_client():
     client.query_one = AsyncMock(return_value=None)
     client._on_message = None
     client._on_connection_lost = None
-    client._pending_queries = {}
+    client._on_connection_restored = None
+    client._pending_queries = []
 
     # Mirror the real set_handlers(): store handlers so tests can drive routing
-    # via client._on_message / client._on_connection_lost after setup.
-    def _set_handlers(on_message, on_connection_lost=None):
+    # via client._on_message / client._on_connection_lost / _on_connection_restored.
+    def _set_handlers(on_message, on_connection_lost=None, on_connection_restored=None):
         client._on_message = on_message
         if on_connection_lost is not None:
             client._on_connection_lost = on_connection_lost
+        if on_connection_restored is not None:
+            client._on_connection_restored = on_connection_restored
 
     client.set_handlers = MagicMock(side_effect=_set_handlers)
     return client
