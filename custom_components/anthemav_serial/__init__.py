@@ -8,7 +8,13 @@ import voluptuous as vol
 from homeassistant.core import HomeAssistant, ServiceCall
 
 from .client import AnthemClient
-from .const import DOMAIN
+from .const import (
+    CONF_BAUDRATE,
+    CONF_ID,
+    CONF_URL,
+    DEFAULT_BAUDRATE,
+    DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,12 +24,36 @@ PLATFORMS = ["media_player", "remote"]
 _PYTHON_TO_ANTHEM_DAY = [2, 3, 4, 5, 6, 7, 1]
 
 
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate v1 (host/port, host:port unique_id) to v2 (url/baudrate, id).
+
+    The old `host:port` string is reused verbatim as CONF_ID so existing
+    devices and entity history survive the upgrade — only fresh installs
+    get a random uuid.
+    """
+    if entry.version == 1:
+        host = entry.data[CONF_HOST]
+        port = entry.data[CONF_PORT]
+        legacy_id = f"{host}:{port}"
+        new_data = {
+            k: v for k, v in entry.data.items() if k not in (CONF_HOST, CONF_PORT)
+        }
+        new_data[CONF_ID] = legacy_id
+        new_data[CONF_URL] = f"socket://{host}:{port}"
+        new_data[CONF_BAUDRATE] = DEFAULT_BAUDRATE
+        hass.config_entries.async_update_entry(
+            entry, data=new_data, unique_id=legacy_id, version=2
+        )
+        _LOGGER.debug("Migrated entry %s to v2 (url=%s)", entry.entry_id, new_data[CONF_URL])
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Handlers are wired by media_player.async_setup_entry via set_handlers()
     # once the entities exist.
     client = AnthemClient(
-        host=entry.data[CONF_HOST],
-        port=entry.data[CONF_PORT],
+        url=entry.data[CONF_URL],
+        baudrate=entry.data[CONF_BAUDRATE],
     )
     await client.start()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = client

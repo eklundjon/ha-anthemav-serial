@@ -17,7 +17,7 @@ from custom_components.anthemav_serial.const import (
     ZONE_3,
     ZONE_MAIN,
 )
-from tests.conftest import ENTRY_DATA, MOCK_HOST, MOCK_PORT
+from tests.conftest import ENTRY_DATA, MOCK_ID, MOCK_MODEL
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -32,8 +32,8 @@ def _entity_id_for_unique(hass, unique_id: str) -> str:
     return entry.entity_id
 
 
-def _device_prefix(host=MOCK_HOST, port=MOCK_PORT):
-    return f"{host}:{port}"
+def _device_prefix():
+    return MOCK_ID
 
 
 def zone_entity_id(hass, zone: int) -> str:
@@ -207,10 +207,11 @@ async def test_zone_hidden_source_sets_source_none(hass, mock_client):
     """A source in hidden_sources should resolve to None."""
     entry = MockConfigEntry(
         domain=DOMAIN,
-        title=f"Anthem AVM50 ({MOCK_HOST})",
+        title=MOCK_MODEL,
         data=ENTRY_DATA,
         options={"hidden_sources": ["0"]},
-        unique_id=f"{MOCK_HOST}:{MOCK_PORT}",
+        unique_id=MOCK_ID,
+        version=2,
     )
     entry.add_to_hass(hass)
 

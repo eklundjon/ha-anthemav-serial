@@ -27,12 +27,14 @@ def _make_stream(lines: list[bytes] | None = None):
 
 async def _connected_client(reader, writer, on_message=None, on_connection_lost=None):
     client = AnthemClient(
-        host="192.168.1.100",
-        port=14000,
+        url="socket://192.168.1.100:14000",
+        baudrate=9600,
         on_message=on_message or (lambda _: None),
         on_connection_lost=on_connection_lost,
     )
-    with patch("asyncio.open_connection", AsyncMock(return_value=(reader, writer))):
+    with patch(
+        "serialx.open_serial_connection", AsyncMock(return_value=(reader, writer))
+    ):
         await client.connect()
     return client
 
@@ -41,16 +43,18 @@ async def _connected_client(reader, writer, on_message=None, on_connection_lost=
 
 async def test_connect_opens_connection():
     reader, writer = _make_stream()
-    with patch("asyncio.open_connection", AsyncMock(return_value=(reader, writer))) as mock_open:
-        client = AnthemClient("host", 14000, on_message=lambda _: None)
+    with patch(
+        "serialx.open_serial_connection", AsyncMock(return_value=(reader, writer))
+    ) as mock_open:
+        client = AnthemClient("socket://host:14000", 9600, on_message=lambda _: None)
         await client.connect()
-    mock_open.assert_called_once_with("host", 14000)
+    mock_open.assert_called_once_with(url="socket://host:14000", baudrate=9600)
     assert client.connected
 
 
 async def test_connect_timeout_raises():
-    client = AnthemClient("host", 14000, on_message=lambda _: None)
-    with patch("asyncio.open_connection", AsyncMock(side_effect=TimeoutError)):
+    client = AnthemClient("socket://host:14000", 9600, on_message=lambda _: None)
+    with patch("serialx.open_serial_connection", AsyncMock(side_effect=TimeoutError)):
         with pytest.raises(TimeoutError):
             await client.connect()
 
@@ -74,9 +78,9 @@ async def test_send_records_last_command():
 
 async def test_send_reconnects_when_not_connected():
     reader, writer = _make_stream()
-    client = AnthemClient("host", 14000, on_message=lambda _: None)
+    client = AnthemClient("socket://host:14000", 9600, on_message=lambda _: None)
     # No prior connect — send should open the connection automatically.
-    with patch("asyncio.open_connection", AsyncMock(return_value=(reader, writer))):
+    with patch("serialx.open_serial_connection", AsyncMock(return_value=(reader, writer))):
         await client.send("P1P?")
     writer.write.assert_called_once_with(b"P1P?\n")
 
@@ -142,7 +146,7 @@ async def test_listen_resolves_pending_queries():
     client._running = True
 
     fut = asyncio.get_event_loop().create_future()
-    client._pending_queries["STF"] = fut
+    client._pending_queries.append((lambda m: m.startswith("STF"), fut))
 
     await client._listen()
 
@@ -158,8 +162,8 @@ async def test_query_one_returns_matching_response():
 
     async def fake_send(cmd):
         # Simulate the device responding immediately after the command.
-        for prefix, fut in list(client._pending_queries.items()):
-            if "STF1".startswith(prefix) and not fut.done():
+        for matcher, fut in list(client._pending_queries):
+            if matcher("STF1") and not fut.done():
                 fut.set_result("STF1")
 
     client.send = fake_send
@@ -180,7 +184,60 @@ async def test_query_one_cleans_up_pending_query_after_timeout():
     client = await _connected_client(reader, writer)
     client.send = AsyncMock()
     await client.query_one("STF?", "STF", timeout=0.01)
-    assert "STF" not in client._pending_queries
+    assert client._pending_queries == []
+
+
+async def test_listen_match_predicate_skips_nonmatching():
+    """A custom matcher resolves only on a matching line, ignoring earlier pushes."""
+    reader, writer = _make_stream(lines=[b"P1P1\n", b"AVM 50v v3.09\n", b""])
+    client = await _connected_client(reader, writer)
+    client._running = True
+
+    fut = asyncio.get_event_loop().create_future()
+    client._pending_queries.append((lambda m: m.startswith("AVM"), fut))
+
+    await client._listen()
+
+    # The unsolicited "P1P1" push must not resolve the identity query.
+    assert fut.result() == "AVM 50v v3.09"
+
+
+# ── reconnection ─────────────────────────────────────────────────────────────────
+
+async def test_reconnect_retries_until_connected():
+    reader, writer = _make_stream()
+    client = AnthemClient("socket://host:14000", 9600)
+    client._running = True
+    opens = AsyncMock(side_effect=[OSError("down"), (reader, writer)])
+    with patch("serialx.open_serial_connection", opens), patch(
+        "custom_components.anthemav_serial.client.asyncio.sleep", AsyncMock()
+    ):
+        await client._reconnect()
+    assert client.connected
+    assert opens.call_count == 2
+
+
+async def test_supervise_reconnects_and_fires_restored():
+    """After a drop, the supervisor reconnects and fires on_connection_restored."""
+    restored = []
+    reader, writer = _make_stream(lines=[b""])  # immediate EOF triggers reconnect
+    client = AnthemClient("socket://host:14000", 9600)
+    client._reader, client._writer = reader, writer
+    client._running = True
+
+    def on_restored():
+        restored.append(True)
+        client._running = False  # let the supervisor exit after one cycle
+
+    client._on_connection_restored = on_restored
+
+    async def fake_reconnect():
+        return  # pretend the reconnect succeeded instantly
+
+    with patch.object(client, "_reconnect", side_effect=fake_reconnect):
+        await client._supervise()
+
+    assert restored == [True]
 
 
 # ── stop ───────────────────────────────────────────────────────────────────────

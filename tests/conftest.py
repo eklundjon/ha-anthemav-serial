@@ -19,12 +19,16 @@ from custom_components.anthemav_serial.const import DOMAIN, VOLUME_MAX, VOLUME_M
 
 MOCK_HOST = "192.168.1.100"
 MOCK_PORT = 14000
+MOCK_URL = f"socket://{MOCK_HOST}:{MOCK_PORT}"
+MOCK_BAUDRATE = 9600
+MOCK_ID = "0123456789abcdef0123456789abcdef"
 MOCK_MODEL = "AVM 50v"
 MOCK_SW_VERSION = "v3.09"
 MOCK_IDENTITY = f"{MOCK_MODEL} {MOCK_SW_VERSION} Aug 21 2012-12:07:09"
 ENTRY_DATA = {
-    "host": MOCK_HOST,
-    "port": MOCK_PORT,
+    "id": MOCK_ID,
+    "url": MOCK_URL,
+    "baudrate": MOCK_BAUDRATE,
     "model": MOCK_MODEL,
     "sw_version": MOCK_SW_VERSION,
 }
@@ -43,8 +47,8 @@ def auto_enable_custom_integrations(enable_custom_integrations):
 def mock_client():
     """A MagicMock that looks like an AnthemClient."""
     client = MagicMock()
-    client.host = MOCK_HOST
-    client.port = MOCK_PORT
+    client.url = MOCK_URL
+    client.baudrate = MOCK_BAUDRATE
     client.last_command = ""
     client.connected = True
     client.connect = AsyncMock()
@@ -54,14 +58,17 @@ def mock_client():
     client.query_one = AsyncMock(return_value=None)
     client._on_message = None
     client._on_connection_lost = None
-    client._pending_queries = {}
+    client._on_connection_restored = None
+    client._pending_queries = []
 
     # Mirror the real set_handlers(): store handlers so tests can drive routing
-    # via client._on_message / client._on_connection_lost after setup.
-    def _set_handlers(on_message, on_connection_lost=None):
+    # via client._on_message / client._on_connection_lost / _on_connection_restored.
+    def _set_handlers(on_message, on_connection_lost=None, on_connection_restored=None):
         client._on_message = on_message
         if on_connection_lost is not None:
             client._on_connection_lost = on_connection_lost
+        if on_connection_restored is not None:
+            client._on_connection_restored = on_connection_restored
 
     client.set_handlers = MagicMock(side_effect=_set_handlers)
     return client
@@ -75,7 +82,8 @@ def config_entry(hass):
         title=MOCK_MODEL,
         data=ENTRY_DATA,
         options={},
-        unique_id=f"{MOCK_HOST}:{MOCK_PORT}",
+        unique_id=MOCK_ID,
+        version=2,
     )
     entry.add_to_hass(hass)
     return entry

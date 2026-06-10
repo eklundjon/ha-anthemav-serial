@@ -2,26 +2,53 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from uuid import uuid4
 
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
-from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .client import AnthemClient
 from .const import (
+    CONF_BAUDRATE,
+    CONF_ID,
     CONF_MODEL,
     CONF_SW_VERSION,
+    CONF_URL,
+    DEFAULT_BAUDRATE,
     DEFAULT_NAME,
     DOMAIN,
-    SOURCES,
+    SELECTABLE_SOURCES,
     VOLUME_MAX,
     VOLUME_MIN,
 )
 
 _IDENTITY_RE = re.compile(r"^(.+?)\s+(v\d+\.\S+)\s+(.+)$")
+
+
+async def _probe(url: str, baudrate: int) -> tuple[str, str | None]:
+    """Connect, query device identity, return (model, sw_version).
+
+    Raises TimeoutError/OSError on connection failure, or any other
+    exception for unexpected errors — callers map these to form errors.
+    """
+    client = AnthemClient(url=url, baudrate=baudrate)
+    await client.start()
+    try:
+        # Match only a line shaped like the identity string, so an unsolicited
+        # status push arriving first isn't mistaken for the reply.
+        identity = await client.query_one("?", match=lambda msg: bool(_IDENTITY_RE.match(msg)))
+    finally:
+        await client.stop()
+
+    model = DEFAULT_NAME
+    sw_version: str | None = None
+    if identity and (m := _IDENTITY_RE.match(identity)):
+        model = m.group(1)
+        sw_version = m.group(2)
+    return model, sw_version
 
 _VOL_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
@@ -33,12 +60,14 @@ _VOL_SELECTOR = selector.NumberSelector(
     )
 )
 
-STEP_USER_DATA_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_HOST): str,
-        vol.Required(CONF_PORT): int,
-    }
-)
+def _connection_schema(url: str = "", baudrate: int = DEFAULT_BAUDRATE) -> vol.Schema:
+    """Schema for the URL + baudrate form (reused by user and reconfigure)."""
+    return vol.Schema(
+        {
+            vol.Required(CONF_URL, default=url): str,
+            vol.Required(CONF_BAUDRATE, default=baudrate): int,
+        }
+    )
 
 
 def _options_schema(
@@ -51,13 +80,13 @@ def _options_schema(
         {
             **{
                 vol.Optional(f"source_{idx}", default=current_names[idx]): str
-                for idx in sorted(SOURCES)
+                for idx in sorted(SELECTABLE_SOURCES)
             },
             vol.Optional("hidden_sources", default=hidden): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=[
                         {"value": idx, "label": current_names[idx]}
-                        for idx in sorted(SOURCES)
+                        for idx in sorted(SELECTABLE_SOURCES)
                     ],
                     multiple=True,
                 )
@@ -78,7 +107,7 @@ def _options_schema(
 class AnthemSerialConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Anthem Serial."""
 
-    VERSION = 1
+    VERSION = 2
 
     @staticmethod
     @callback
@@ -91,40 +120,79 @@ class AnthemSerialConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            host = user_input[CONF_HOST]
-            port = user_input[CONF_PORT]
-
-            await self.async_set_unique_id(f"{host}:{port}")
-            self._abort_if_unique_id_configured()
-
+            url = user_input[CONF_URL]
+            baudrate = user_input[CONF_BAUDRATE]
             try:
-                client = AnthemClient(host=host, port=port)
-                await client.start()
-                identity = await client.query_one("?", "")
-                await client.stop()
+                model, sw_version = await _probe(url, baudrate)
             except (TimeoutError, OSError):
                 errors["base"] = "cannot_connect"
             except Exception:  # noqa: BLE001
                 errors["base"] = "unknown"
             else:
-                model = DEFAULT_NAME
-                sw_version: str | None = None
-                if identity:
-                    if m := _IDENTITY_RE.match(identity):
-                        model = m.group(1)
-                        sw_version = m.group(2)
-                entry_data = dict(user_input)
-                entry_data[CONF_MODEL] = model
+                # No hardware serial number is available from the Gen1
+                # protocol, so the device identity is an opaque random id
+                # stored in the entry. It stays stable when the URL changes
+                # (reconfigure), keeping the device and its entities intact.
+                await self.async_set_unique_id(uuid4().hex)
+                entry_data = {
+                    CONF_ID: self.unique_id,
+                    CONF_URL: url,
+                    CONF_BAUDRATE: baudrate,
+                    CONF_MODEL: model,
+                }
                 if sw_version is not None:
                     entry_data[CONF_SW_VERSION] = sw_version
-                return self.async_create_entry(
-                    title=model,
-                    data=entry_data,
-                )
+                return self.async_create_entry(title=model, data=entry_data)
 
         return self.async_show_form(
             step_id="user",
-            data_schema=STEP_USER_DATA_SCHEMA,
+            data_schema=_connection_schema(),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Change the connection URL/baudrate without recreating the entry.
+
+        The stable CONF_ID is preserved, so the device registry entry and
+        all entity history survive moving between e.g. a legacy gateway and
+        an esphome serial proxy.
+        """
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        assert entry is not None
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            url = user_input[CONF_URL]
+            baudrate = user_input[CONF_BAUDRATE]
+            try:
+                model, sw_version = await _probe(url, baudrate)
+            except (TimeoutError, OSError):
+                errors["base"] = "cannot_connect"
+            except Exception:  # noqa: BLE001
+                errors["base"] = "unknown"
+            else:
+                new_data = {
+                    **entry.data,
+                    CONF_URL: url,
+                    CONF_BAUDRATE: baudrate,
+                    CONF_MODEL: model,
+                }
+                if sw_version is not None:
+                    new_data[CONF_SW_VERSION] = sw_version
+                self.hass.config_entries.async_update_entry(
+                    entry, title=model, data=new_data
+                )
+                await self.hass.config_entries.async_reload(entry.entry_id)
+                return self.async_abort(reason="reconfigure_successful")
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=_connection_schema(
+                entry.data.get(CONF_URL, ""),
+                entry.data.get(CONF_BAUDRATE, DEFAULT_BAUDRATE),
+            ),
             errors=errors,
         )
 
@@ -135,24 +203,39 @@ class AnthemSerialOptionsFlow(OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
+            # A zone whose min >= max would make the volume scaling divide by
+            # zero (or invert) in the media_player, so reject it here.
+            if any(
+                user_input.get(f"zone{z}_vol_min", VOLUME_MIN)
+                >= user_input.get(f"zone{z}_vol_max", VOLUME_MAX)
+                for z in (1, 2, 3)
+            ):
+                errors["base"] = "vol_min_not_below_max"
+            else:
+                return self.async_create_entry(data=user_input)
+
+        # On a validation re-show, prefill from the rejected input so the user's
+        # edits survive; otherwise from saved options.
+        prefill = user_input if user_input is not None else self.config_entry.options
 
         current_names = {
-            idx: self.config_entry.options.get(f"source_{idx}", default_name)
-            for idx, default_name in SOURCES.items()
+            idx: prefill.get(f"source_{idx}", default_name)
+            for idx, default_name in SELECTABLE_SOURCES.items()
         }
-        hidden = self.config_entry.options.get("hidden_sources", [])
+        hidden = prefill.get("hidden_sources", [])
 
-        if "time_format_24hr" in self.config_entry.options:
-            time_format_24hr: bool = self.config_entry.options["time_format_24hr"]
+        if "time_format_24hr" in prefill:
+            time_format_24hr: bool = prefill["time_format_24hr"]
         else:
             # Query the device for its current clock format setting.
             client = self.hass.data[DOMAIN][self.config_entry.entry_id]
             response = await client.query_one("STF?", "STF")
             time_format_24hr = response == "STF1" if response is not None else False
         vol_limits = {
-            key: self.config_entry.options.get(key, default)
+            key: prefill.get(key, default)
             for key, default in [
                 ("zone1_vol_min", VOLUME_MIN), ("zone1_vol_max", VOLUME_MAX),
                 ("zone2_vol_min", VOLUME_MIN), ("zone2_vol_max", VOLUME_MAX),
@@ -163,4 +246,5 @@ class AnthemSerialOptionsFlow(OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=_options_schema(current_names, hidden, vol_limits, time_format_24hr),
+            errors=errors,
         )

@@ -3,8 +3,15 @@ DOMAIN = "anthemav_serial"
 DEFAULT_NAME = "Anthem AVM50"
 CONF_HOST = "host"
 CONF_PORT = "port"
+CONF_URL = "url"
+CONF_BAUDRATE = "baudrate"
+CONF_ID = "id"
 CONF_MODEL = "model"
 CONF_SW_VERSION = "sw_version"
+
+# Anthem Gen1 RS-232 default; only meaningful for native serial URLs
+# (ignored for socket://, rfc2217://, esphome://) but serialx requires it.
+DEFAULT_BAUDRATE = 9600
 
 CMD_TERMINATOR = "\n"
 
@@ -52,6 +59,16 @@ SOURCES = {
     "h": "TV3",
     "i": "TV4",
     "j": "SAT2",
+}
+
+# "c" (current) is a meta value the device accepts as a "recall current source"
+# command and can echo back, but it is not a real selectable input. Keep it in
+# SOURCES for message parsing, but exclude it from anything user-facing.
+META_SOURCE_KEYS: frozenset[str] = frozenset({"c"})
+
+# Real, user-selectable inputs (source picker + options-flow rename/hide UI).
+SELECTABLE_SOURCES: dict[str, str] = {
+    idx: name for idx, name in SOURCES.items() if idx not in META_SOURCE_KEYS
 }
 
 VOLUME_MIN = -95.5

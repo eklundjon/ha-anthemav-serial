@@ -13,6 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .client import AnthemClient
 from .const import (
+    CONF_ID,
     CONF_MODEL,
     CONF_SW_VERSION,
     DOMAIN,
@@ -81,7 +82,7 @@ class AnthemRemoteEntity(RemoteEntity):
     def __init__(self, client: AnthemClient, zone: int, entry: ConfigEntry) -> None:
         self._client = client
         self.zone = zone
-        device_id = f"{client.host}:{client.port}"
+        device_id = entry.data[CONF_ID]
         self._attr_name = _ZONE_NAMES[zone]
         self._attr_unique_id = f"{device_id}_zone{zone}_remote"
         self._attr_device_info = DeviceInfo(

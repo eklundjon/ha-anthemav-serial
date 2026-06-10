@@ -2,24 +2,37 @@
   "config": {
     "step": {
       "user": {
-        "title": "Serial Gateway Configuration",
-        "description": "This integration connects to an Anthem Gen1 A/V processor RS232 control port via an IP-to-serial gateway (e.g. Global Cache iTach).",
+        "title": "Anthem Serial Connection",
+        "description": "Connects to an Anthem Gen1 A/V processor RS-232 control port. Supported URLs: socket://host:port (TCP serial gateway, e.g. Global Cache iTach), rfc2217://host:port, esphome://host:port, or a local device path like /dev/ttyUSB0.",
         "data": {
-          "host": "Host",
-          "port": "Port"
+          "url": "Connection URL",
+          "baudrate": "Baud rate"
         },
         "data_description": {
-          "host": "IP address or hostname of your serial gateway",
-          "port": "TCP port of the serial interface connected to your Anthem device"
+          "url": "serialx connection URL for the Anthem device",
+          "baudrate": "Only used for direct serial connections; ignored for socket://, rfc2217:// and esphome://"
+        }
+      },
+      "reconfigure": {
+        "title": "Change Anthem Connection",
+        "description": "Update the connection URL or baud rate. The device and its entity history are preserved.",
+        "data": {
+          "url": "Connection URL",
+          "baudrate": "Baud rate"
+        },
+        "data_description": {
+          "url": "serialx connection URL for the Anthem device",
+          "baudrate": "Only used for direct serial connections; ignored for socket://, rfc2217:// and esphome://"
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect — check the host and port",
+      "cannot_connect": "Failed to connect — check the URL and baud rate",
       "unknown": "Unexpected error"
     },
     "abort": {
-      "already_configured": "This device is already configured"
+      "already_configured": "This device is already configured",
+      "reconfigure_successful": "Connection updated successfully"
     }
   },
   "options": {
@@ -45,7 +58,6 @@
           "source_7": "SAT1",
           "source_8": "VCR",
           "source_9": "AUX",
-          "source_c": "current",
           "source_d": "DVD2",
           "source_e": "DVD3",
           "source_f": "DVD4",
@@ -55,6 +67,9 @@
           "source_j": "SAT2"
         }
       }
+    },
+    "error": {
+      "vol_min_not_below_max": "Each zone's minimum volume must be below its maximum"
     }
   }
 }
