@@ -64,6 +64,18 @@ def cmd_auto_timers(enabled: bool) -> str:
     return f"STE{1 if enabled else 0}"
 
 
+# Trigger outputs are write-only and global mode `StE` must be 2 (RS-232
+# control) for t{n}T to drive an output — so every trigger write asserts the
+# mode first. `StE` is global (all 3 triggers) and detaches them from their
+# built-in condition table, which is why trigger control is opt-in.
+def cmd_trigger(num: int, on: bool) -> str:
+    return f"StE2;t{num}T{1 if on else 0}"
+
+
+# Hand the triggers back to their internal auto/condition control.
+TRIGGER_HANDBACK = "StE1"
+
+
 def message_signal(entry_id: str) -> str:
     """Dispatcher signal carrying every raw device message for an entry.
 

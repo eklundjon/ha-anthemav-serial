@@ -455,3 +455,33 @@ async def test_migrate_v1_entry_to_v2(hass, mock_client):
     assert v1_entry.data["baudrate"] == 9600
     assert "host" not in v1_entry.data and "port" not in v1_entry.data
     assert v1_entry.unique_id == f"{MOCK_HOST}:{MOCK_PORT}"
+
+
+# ── Options flow: trigger control ────────────────────────────────────────────────
+
+async def test_options_disabling_triggers_hands_back(hass, mock_client):
+    """Turning trigger control off sends StE1 to return triggers to auto mode."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, title=MOCK_MODEL, data=ENTRY_DATA,
+        options={"trigger_control": True}, unique_id=MOCK_ID, version=2,
+    )
+    entry.add_to_hass(hass)
+    with (
+        patch("custom_components.anthemav_serial.AnthemClient", return_value=mock_client),
+        patch("custom_components.anthemav_serial.media_player.asyncio.sleep", AsyncMock()),
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    await hass.config_entries.options.async_init(entry.entry_id)
+    flow_id = hass.config_entries.options.async_progress()[0]["flow_id"]
+    mock_client.send.reset_mock()
+    with patch(
+        "homeassistant.config_entries.ConfigEntries.async_reload", AsyncMock(return_value=True)
+    ):
+        result = await hass.config_entries.options.async_configure(
+            flow_id, user_input={"trigger_control": False}
+        )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert any(c.args == ("StE1",) for c in mock_client.send.call_args_list)

@@ -24,8 +24,11 @@ from .const import (
     cmd_auto_timers,
     cmd_panel_lock,
     cmd_tone_controls,
+    cmd_trigger,
     message_signal,
 )
+
+CONF_TRIGGER_CONTROL = "trigger_control"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -46,6 +49,10 @@ async def async_setup_entry(
     ]
     entities.append(AnthemPanelLockSwitch(client, entry))
     entities.append(AnthemAutoTimersSwitch(client, entry))
+    # Triggers are opt-in (options flow): enabling them takes the unit's 12V
+    # triggers under RS-232 control, detaching them from their auto conditions.
+    if entry.options.get(CONF_TRIGGER_CONTROL, False):
+        entities += [AnthemTriggerSwitch(client, num, entry) for num in (1, 2, 3)]
     async_add_entities(entities)
 
 
@@ -182,5 +189,39 @@ class AnthemAutoTimersSwitch(_AnthemSwitchBase):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self._client.send(cmd_auto_timers(False))
+        self._attr_is_on = False
+        self.async_write_ha_state()
+
+
+class AnthemTriggerSwitch(_AnthemSwitchBase):
+    """A 12V trigger output (t{n}T). Write-only (assumed state). Each write
+    asserts RS-232 trigger mode (StE2); on main power-on the held state is
+    re-applied, since the outputs come up off after a power cycle.
+    """
+
+    _attr_icon = "mdi:flash"
+    _attr_assumed_state = True  # no device feedback for trigger state
+    _attr_entity_category = None  # a real control (drives external gear), not config
+
+    def __init__(self, client: AnthemClient, num: int, entry: ConfigEntry) -> None:
+        super().__init__(client, entry)
+        self.num = num
+        self._attr_name = f"Trigger {num}"
+        self._attr_unique_id = f"{entry.data[CONF_ID]}_trigger{num}"
+        self._attr_is_on = False  # optimistic; HA is the source of truth
+
+    @callback
+    def _handle_message(self, message: str) -> None:
+        # Re-apply on main power-on — triggers reset to off after a power cycle.
+        if message == "P1P1" and self._attr_is_on:
+            self.hass.async_create_task(self._client.send(cmd_trigger(self.num, True)))
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self._client.send(cmd_trigger(self.num, True))
+        self._attr_is_on = True
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self._client.send(cmd_trigger(self.num, False))
         self._attr_is_on = False
         self.async_write_ha_state()
