@@ -31,6 +31,7 @@ from .const import (
     DEFAULT_NAME,
     DOMAIN,
     SELECTABLE_SOURCES,
+    TRIGGER_HANDBACK,
     VOLUME_MAX,
     VOLUME_MIN,
 )
@@ -115,6 +116,7 @@ def _options_schema(
     hidden: list[str],
     vol_limits: dict[str, float],
     time_format_24hr: bool,
+    trigger_control: bool,
 ) -> vol.Schema:
     return vol.Schema(
         {
@@ -140,6 +142,7 @@ def _options_schema(
                 )
             },
             vol.Optional("time_format_24hr", default=time_format_24hr): bool,
+            vol.Optional("trigger_control", default=trigger_control): bool,
         }
     )
 
@@ -300,6 +303,12 @@ class AnthemSerialOptionsFlow(OptionsFlow):
             ):
                 errors["base"] = "vol_min_not_below_max"
             else:
+                # If trigger control is being turned off, hand the triggers back
+                # to their internal auto/condition control before reloading.
+                was_on = self.config_entry.options.get("trigger_control", False)
+                if was_on and not user_input.get("trigger_control", False):
+                    client = self.hass.data[DOMAIN][self.config_entry.entry_id]
+                    await client.send(TRIGGER_HANDBACK)
                 return self.async_create_entry(data=user_input)
 
         # On a validation re-show, prefill from the rejected input so the user's
@@ -327,9 +336,12 @@ class AnthemSerialOptionsFlow(OptionsFlow):
                 ("zone3_vol_min", VOLUME_MIN), ("zone3_vol_max", VOLUME_MAX),
             ]
         }
+        trigger_control = prefill.get("trigger_control", False)
 
         return self.async_show_form(
             step_id="init",
-            data_schema=_options_schema(current_names, hidden, vol_limits, time_format_24hr),
+            data_schema=_options_schema(
+                current_names, hidden, vol_limits, time_format_24hr, trigger_control
+            ),
             errors=errors,
         )

@@ -1,10 +1,29 @@
 """Tests for the Anthem switch platform."""
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 from homeassistant.helpers import entity_registry as er
 
-from custom_components.anthemav_serial.const import ZONE_2, ZONE_MAIN
-from tests.conftest import MOCK_ID
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.anthemav_serial.const import DOMAIN, ZONE_2, ZONE_MAIN
+from tests.conftest import ENTRY_DATA, MOCK_ID, MOCK_MODEL
+
+
+async def _setup_with_options(hass, mock_client, options):
+    entry = MockConfigEntry(
+        domain=DOMAIN, title=MOCK_MODEL, data=ENTRY_DATA,
+        options=options, unique_id=MOCK_ID, version=2,
+    )
+    entry.add_to_hass(hass)
+    with (
+        patch("custom_components.anthemav_serial.AnthemClient", return_value=mock_client),
+        patch("custom_components.anthemav_serial.media_player.asyncio.sleep", AsyncMock()),
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+    return entry
 
 
 def _entity_id(hass, unique_id: str) -> str:
@@ -117,3 +136,62 @@ async def test_auto_timers_reflects_push_and_command(hass, setup_integration):
         "switch", "turn_off", {"entity_id": _timers_id(hass)}, blocking=True
     )
     mock_client.send.assert_called_once_with("STE0")
+
+
+# ── Triggers (opt-in) ────────────────────────────────────────────────────────────
+
+def _trigger_id(hass, num: int) -> str:
+    return _entity_id(hass, f"{MOCK_ID}_trigger{num}")
+
+
+async def test_no_trigger_switches_by_default(hass, setup_integration):
+    reg = er.async_get(hass)
+    uids = {e.unique_id for e in reg.entities.values() if e.domain == "switch"}
+    assert f"{MOCK_ID}_trigger1" not in uids
+
+
+async def test_trigger_switches_created_when_enabled(hass, mock_client):
+    await _setup_with_options(hass, mock_client, {"trigger_control": True})
+    reg = er.async_get(hass)
+    uids = {e.unique_id for e in reg.entities.values() if e.domain == "switch"}
+    assert {f"{MOCK_ID}_trigger1", f"{MOCK_ID}_trigger2", f"{MOCK_ID}_trigger3"} <= uids
+
+
+async def test_trigger_turn_on_asserts_mode_and_sets(hass, mock_client):
+    await _setup_with_options(hass, mock_client, {"trigger_control": True})
+    mock_client.send.reset_mock()
+    tid = _trigger_id(hass, 1)
+    await hass.services.async_call("switch", "turn_on", {"entity_id": tid}, blocking=True)
+    mock_client.send.assert_called_once_with("StE2;t1T1")
+    assert hass.states.get(tid).state == "on"
+    assert hass.states.get(tid).attributes.get("assumed_state") is True
+
+
+async def test_trigger_turn_off_sends_command(hass, mock_client):
+    await _setup_with_options(hass, mock_client, {"trigger_control": True})
+    tid = _trigger_id(hass, 3)
+    await hass.services.async_call("switch", "turn_on", {"entity_id": tid}, blocking=True)
+    mock_client.send.reset_mock()
+    await hass.services.async_call("switch", "turn_off", {"entity_id": tid}, blocking=True)
+    mock_client.send.assert_called_once_with("StE2;t3T0")
+
+
+async def test_trigger_reapplied_on_power_on_when_on(hass, mock_client):
+    await _setup_with_options(hass, mock_client, {"trigger_control": True})
+    tid = _trigger_id(hass, 2)
+    await hass.services.async_call("switch", "turn_on", {"entity_id": tid}, blocking=True)
+    mock_client.send.reset_mock()
+
+    mock_client._on_message("P1P1")  # main power-on
+    await hass.async_block_till_done()
+    sent = [c.args[0] for c in mock_client.send.call_args_list if c.args]
+    assert "StE2;t2T1" in sent
+
+
+async def test_trigger_not_reapplied_when_off(hass, mock_client):
+    await _setup_with_options(hass, mock_client, {"trigger_control": True})
+    mock_client.send.reset_mock()
+    mock_client._on_message("P1P1")
+    await hass.async_block_till_done()
+    sent = [c.args[0] for c in mock_client.send.call_args_list if c.args]
+    assert not any("t1T" in s or "t2T" in s or "t3T" in s for s in sent)
