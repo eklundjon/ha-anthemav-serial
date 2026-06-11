@@ -549,6 +549,80 @@ async def test_select_unknown_source_logs_warning_and_sends_nothing(
     assert "unknown source" in caplog.text.lower()
 
 
+# ── Zone: sound mode (Main only) ─────────────────────────────────────────────────
+
+async def test_main_zone_advertises_sound_mode(hass, setup_integration):
+    on_message = setup_integration[1]._on_message
+    on_message("P1P1")
+    await hass.async_block_till_done()
+    state = hass.states.get(zone_entity_id(hass, ZONE_MAIN))
+    assert state.attributes["supported_features"] & MediaPlayerEntityFeature.SELECT_SOUND_MODE
+    assert "AnthemLogic Cinema" in state.attributes["sound_mode_list"]
+
+
+async def test_zone2_has_no_sound_mode(hass, setup_integration):
+    on_message = setup_integration[1]._on_message
+    on_message("P2P1")
+    await hass.async_block_till_done()
+    state = hass.states.get(zone_entity_id(hass, ZONE_2))
+    assert not (state.attributes["supported_features"] & MediaPlayerEntityFeature.SELECT_SOUND_MODE)
+    assert "sound_mode_list" not in state.attributes
+
+
+async def test_sound_mode_tracked_from_audio_fx(hass, setup_integration):
+    on_message = setup_integration[1]._on_message
+    on_message("P1P1")
+    on_message("P1E04")  # source 0, mode 4 = ProLogic IIx Movie
+    await hass.async_block_till_done()
+    state = hass.states.get(zone_entity_id(hass, ZONE_MAIN))
+    assert state.attributes["sound_mode"] == "ProLogic IIx Movie"
+
+
+async def test_exotic_mode_not_surfaced_as_sound_mode(hass, setup_integration):
+    """An a-d mode (outside the curated digit list) leaves sound_mode unset."""
+    on_message = setup_integration[1]._on_message
+    on_message("P1P1")
+    on_message("P1E0A")  # mode A = Mono (not in curated sound_mode_list)
+    await hass.async_block_till_done()
+    state = hass.states.get(zone_entity_id(hass, ZONE_MAIN))
+    assert state.attributes.get("sound_mode") is None
+    assert state.attributes["audio_fx"] == "Mono"  # still visible as an extra attr
+
+
+async def test_select_sound_mode_sends_command(hass, setup_integration):
+    _, mock_client = setup_integration
+    on_message = mock_client._on_message
+    on_message("P1S0")  # establish active source 0
+    on_message("P1P1")
+    await hass.async_block_till_done()
+    mock_client.send.reset_mock()
+
+    await hass.services.async_call(
+        "media_player", "select_sound_mode",
+        {"entity_id": zone_entity_id(hass, ZONE_MAIN), "sound_mode": "ProLogic IIx Movie"},
+        blocking=True,
+    )
+    mock_client.send.assert_called_once_with("P1E04")  # P1E + source 0 + mode 4
+
+
+async def test_select_unknown_sound_mode_logs_warning(hass, setup_integration, caplog):
+    _, mock_client = setup_integration
+    on_message = mock_client._on_message
+    on_message("P1S0")
+    on_message("P1P1")
+    await hass.async_block_till_done()
+    mock_client.send.reset_mock()
+
+    with caplog.at_level("WARNING"):
+        await hass.services.async_call(
+            "media_player", "select_sound_mode",
+            {"entity_id": zone_entity_id(hass, ZONE_MAIN), "sound_mode": "Bogus"},
+            blocking=True,
+        )
+    assert "unknown sound mode" in caplog.text.lower()
+    mock_client.send.assert_not_called()
+
+
 # ── Tuner ──────────────────────────────────────────────────────────────────────
 
 async def test_tuner_becomes_available_when_zone_reports_source(hass, setup_integration):
