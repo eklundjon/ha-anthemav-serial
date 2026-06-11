@@ -8,7 +8,12 @@ from homeassistant.data_entry_flow import FlowResultType
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.anthemav_serial.const import DOMAIN, VOLUME_MAX, VOLUME_MIN
+from custom_components.anthemav_serial.const import (
+    DEFAULT_BAUDRATE,
+    DOMAIN,
+    VOLUME_MAX,
+    VOLUME_MIN,
+)
 from tests.conftest import (
     ENTRY_DATA,
     MOCK_BAUDRATE,
@@ -24,132 +29,132 @@ from tests.conftest import (
 
 # ── Config flow (user step) ────────────────────────────────────────────────────
 
-async def test_user_step_shows_form(hass):
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": "user"}
+def _probe_client(identity=MOCK_IDENTITY, start_error=None):
+    client = MagicMock()
+    client.start = AsyncMock(side_effect=start_error)
+    client.stop = AsyncMock()
+    client.query_one = AsyncMock(return_value=identity)
+    return client
+
+
+def _patch_client(client):
+    return patch(
+        "custom_components.anthemav_serial.config_flow.AnthemClient", return_value=client
     )
-    assert result["type"] == FlowResultType.FORM
+
+
+async def _pick(hass, flow_id, step):
+    return await hass.config_entries.flow.async_configure(flow_id, {"next_step_id": step})
+
+
+async def _add_via(hass, step, fields, client):
+    """Drive an add: init -> menu -> pick `step` -> submit `fields`."""
+    with _patch_client(client):
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+        result = await _pick(hass, result["flow_id"], step)
+        return await hass.config_entries.flow.async_configure(result["flow_id"], fields)
+
+
+async def test_user_step_shows_menu(hass):
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    assert result["type"] == FlowResultType.MENU
     assert result["step_id"] == "user"
-    assert "errors" not in result or result["errors"] == {}
+    assert set(result["menu_options"]) == {"socket", "rfc2217", "esphome", "serial"}
 
 
-async def test_user_step_success_creates_entry(hass):
-    mock_client = MagicMock()
-    mock_client.start = AsyncMock()
-    mock_client.stop = AsyncMock()
-    mock_client.query_one = AsyncMock(return_value=MOCK_IDENTITY)
-
-    with patch(
-        "custom_components.anthemav_serial.config_flow.AnthemClient",
-        return_value=mock_client,
-    ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data={"url": MOCK_URL, "baudrate": MOCK_BAUDRATE}
-        )
-
+async def test_socket_step_creates_entry(hass):
+    result = await _add_via(hass, "socket", {"host": MOCK_HOST, "port": MOCK_PORT}, _probe_client())
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["title"] == MOCK_MODEL
-    assert result["data"]["url"] == MOCK_URL
-    assert result["data"]["baudrate"] == MOCK_BAUDRATE
+    assert result["data"]["url"] == MOCK_URL  # socket://MOCK_HOST:MOCK_PORT
+    assert result["data"]["baudrate"] == DEFAULT_BAUDRATE
     assert result["data"]["model"] == MOCK_MODEL
     assert result["data"]["sw_version"] == MOCK_SW_VERSION
-    # id is an opaque random token decoupled from the URL
     assert result["data"]["id"]
     assert result["result"].unique_id == result["data"]["id"]
 
 
-async def test_user_step_falls_back_to_default_name_when_identity_not_received(hass):
+async def test_socket_step_falls_back_to_default_name(hass):
     from custom_components.anthemav_serial.const import DEFAULT_NAME
 
-    mock_client = MagicMock()
-    mock_client.start = AsyncMock()
-    mock_client.stop = AsyncMock()
-    mock_client.query_one = AsyncMock(return_value=None)
-
-    with patch(
-        "custom_components.anthemav_serial.config_flow.AnthemClient",
-        return_value=mock_client,
-    ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data={"url": MOCK_URL, "baudrate": MOCK_BAUDRATE}
-        )
-
+    result = await _add_via(
+        hass, "socket", {"host": MOCK_HOST, "port": MOCK_PORT}, _probe_client(identity=None)
+    )
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert result["title"] == DEFAULT_NAME
     assert result["data"]["model"] == DEFAULT_NAME
     assert "sw_version" not in result["data"]
 
 
-async def test_user_step_cannot_connect_shows_error(hass):
-    mock_client = MagicMock()
-    mock_client.start = AsyncMock(side_effect=OSError)
-    mock_client.stop = AsyncMock()
-
-    with patch(
-        "custom_components.anthemav_serial.config_flow.AnthemClient",
-        return_value=mock_client,
-    ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data={"url": MOCK_URL, "baudrate": MOCK_BAUDRATE}
-        )
-
+@pytest.mark.parametrize(
+    "error, expected",
+    [
+        (OSError, "cannot_connect"),
+        (TimeoutError, "cannot_connect"),
+        (RuntimeError("boom"), "unknown"),
+    ],
+)
+async def test_socket_step_connection_errors(hass, error, expected):
+    result = await _add_via(
+        hass, "socket", {"host": MOCK_HOST, "port": MOCK_PORT}, _probe_client(start_error=error)
+    )
     assert result["type"] == FlowResultType.FORM
-    assert result["errors"] == {"base": "cannot_connect"}
+    assert result["step_id"] == "socket"
+    assert result["errors"] == {"base": expected}
 
 
-async def test_user_step_timeout_shows_error(hass):
-    mock_client = MagicMock()
-    mock_client.start = AsyncMock(side_effect=TimeoutError)
-    mock_client.stop = AsyncMock()
-
-    with patch(
-        "custom_components.anthemav_serial.config_flow.AnthemClient",
-        return_value=mock_client,
-    ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data={"url": MOCK_URL, "baudrate": MOCK_BAUDRATE}
-        )
-
-    assert result["type"] == FlowResultType.FORM
-    assert result["errors"] == {"base": "cannot_connect"}
+async def test_rfc2217_step_builds_url(hass):
+    result = await _add_via(hass, "rfc2217", {"host": "gw.local", "port": 5000}, _probe_client())
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["url"] == "rfc2217://gw.local:5000"
 
 
-async def test_user_step_unknown_error_shows_error(hass):
-    mock_client = MagicMock()
-    mock_client.start = AsyncMock(side_effect=RuntimeError("boom"))
-    mock_client.stop = AsyncMock()
-
-    with patch(
-        "custom_components.anthemav_serial.config_flow.AnthemClient",
-        return_value=mock_client,
-    ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data={"url": MOCK_URL, "baudrate": MOCK_BAUDRATE}
-        )
-
-    assert result["type"] == FlowResultType.FORM
-    assert result["errors"] == {"base": "unknown"}
+async def test_serial_step_uses_device_path_as_url(hass):
+    result = await _add_via(
+        hass, "serial", {"device": "/dev/ttyUSB0", "baudrate": 9600}, _probe_client()
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["url"] == "/dev/ttyUSB0"
+    assert result["data"]["baudrate"] == 9600
 
 
 async def test_user_step_allows_multiple_entries(hass, config_entry):
-    """No hardware serial number exists, so the id is random per flow run —
-    adding the same device again creates a second entry rather than aborting."""
-    mock_client = MagicMock()
-    mock_client.start = AsyncMock()
-    mock_client.stop = AsyncMock()
-    mock_client.query_one = AsyncMock(return_value=MOCK_IDENTITY)
-
-    with patch(
-        "custom_components.anthemav_serial.config_flow.AnthemClient",
-        return_value=mock_client,
-    ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data={"url": MOCK_URL, "baudrate": MOCK_BAUDRATE}
-        )
-
+    """No hardware serial number exists, so the id is random per flow run."""
+    result = await _add_via(hass, "socket", {"host": MOCK_HOST, "port": MOCK_PORT}, _probe_client())
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    # Distinct random id from the pre-existing config_entry fixture.
     assert result["data"]["id"] != config_entry.unique_id
+
+
+def test_parse_url_splits_known_schemes():
+    from custom_components.anthemav_serial.config_flow import _parse_url
+
+    assert _parse_url("socket://1.2.3.4:9999") == ("socket", "1.2.3.4", 9999, "")
+    assert _parse_url("rfc2217://gw:5") == ("rfc2217", "gw", 5, "")
+    assert _parse_url("esphome://host:6053") == ("esphome", "host", 6053, "")
+    assert _parse_url("/dev/ttyUSB0") == ("serial", "", None, "/dev/ttyUSB0")
+
+
+# ── Config flow: reconfigure (swap gateway) ──────────────────────────────────────
+
+async def test_reconfigure_shows_menu(hass, config_entry):
+    result = await config_entry.start_reconfigure_flow(hass)
+    assert result["type"] == FlowResultType.MENU
+    assert result["step_id"] == "reconfigure"
+
+
+async def test_reconfigure_swaps_connection_type(hass, config_entry):
+    """Reconfiguring to a different type rewrites the URL but keeps the id."""
+    with _patch_client(_probe_client()), patch(
+        "homeassistant.config_entries.ConfigEntries.async_reload", AsyncMock(return_value=True)
+    ):
+        result = await config_entry.start_reconfigure_flow(hass)
+        result = await _pick(hass, result["flow_id"], "serial")
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"device": "/dev/ttyUSB1", "baudrate": 9600}
+        )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert config_entry.data["url"] == "/dev/ttyUSB1"
+    assert config_entry.data["id"] == MOCK_ID  # stable id preserved
 
 
 # ── Options flow ───────────────────────────────────────────────────────────────
@@ -374,56 +379,47 @@ async def test_options_flow_uses_stored_time_format_without_querying(
 
 # ── Reconfigure flow ───────────────────────────────────────────────────────────
 
-async def test_reconfigure_updates_url_keeps_id(hass, config_entry):
-    """Reconfigure changes url/baudrate but preserves the stable id/unique_id."""
+async def test_reconfigure_to_same_scheme_prefills_host(hass, config_entry):
+    """Picking the current scheme on reconfigure pre-fills its host/port, and a
+    successful submit updates the URL while preserving the stable id."""
     original_id = config_entry.data["id"]
     original_unique_id = config_entry.unique_id
 
-    mock_client = MagicMock()
-    mock_client.start = AsyncMock()
-    mock_client.stop = AsyncMock()
-    mock_client.query_one = AsyncMock(return_value=MOCK_IDENTITY)
-
-    new_url = "esphome://10.0.0.5:6053"
-    with patch(
-        "custom_components.anthemav_serial.config_flow.AnthemClient",
-        return_value=mock_client,
+    with _patch_client(_probe_client()), patch(
+        "homeassistant.config_entries.ConfigEntries.async_reload", AsyncMock(return_value=True)
     ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": "reconfigure", "entry_id": config_entry.entry_id},
-            data={"url": new_url, "baudrate": 19200},
+        result = await config_entry.start_reconfigure_flow(hass)
+        result = await _pick(hass, result["flow_id"], "socket")
+        assert result["type"] == FlowResultType.FORM
+        # Pre-filled from the current socket URL.
+        defaults = {m.schema: m.default() for m in result["data_schema"].schema}
+        assert defaults["host"] == MOCK_HOST
+        assert defaults["port"] == MOCK_PORT
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"host": "10.0.0.5", "port": 5000}
         )
 
     assert result["type"] == FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
-    assert config_entry.data["url"] == new_url
-    assert config_entry.data["baudrate"] == 19200
-    # Identity is unchanged — device & entities survive the URL change.
+    assert config_entry.data["url"] == "socket://10.0.0.5:5000"
     assert config_entry.data["id"] == original_id
     assert config_entry.unique_id == original_unique_id
 
 
-async def test_reconfigure_connection_error_shows_form(hass, config_entry):
-    mock_client = MagicMock()
-    mock_client.start = AsyncMock(side_effect=OSError)
-    mock_client.stop = AsyncMock()
-
-    with patch(
-        "custom_components.anthemav_serial.config_flow.AnthemClient",
-        return_value=mock_client,
-    ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": "reconfigure", "entry_id": config_entry.entry_id},
-            data={"url": "socket://bad:1", "baudrate": 9600},
+async def test_reconfigure_connection_error_keeps_entry(hass, config_entry):
+    """A failed probe during reconfigure re-shows the form and leaves the entry."""
+    with _patch_client(_probe_client(start_error=OSError)):
+        result = await config_entry.start_reconfigure_flow(hass)
+        result = await _pick(hass, result["flow_id"], "socket")
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"host": "bad", "port": 1}
         )
 
     assert result["type"] == FlowResultType.FORM
-    assert result["step_id"] == "reconfigure"
+    assert result["step_id"] == "socket"
     assert result["errors"] == {"base": "cannot_connect"}
-    # Entry untouched on failure.
-    assert config_entry.data["url"] == MOCK_URL
+    assert config_entry.data["url"] == MOCK_URL  # untouched on failure
 
 
 # ── v1 → v2 migration ──────────────────────────────────────────────────────────

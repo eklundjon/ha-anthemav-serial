@@ -7,7 +7,14 @@ from uuid import uuid4
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.config_entries import (
+    SOURCE_RECONFIGURE,
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
+from homeassistant.const import CONF_DEVICE, CONF_HOST, CONF_PORT
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 
@@ -63,14 +70,44 @@ _VOL_SELECTOR = selector.NumberSelector(
     )
 )
 
-def _connection_schema(url: str = "", baudrate: int = DEFAULT_BAUDRATE) -> vol.Schema:
-    """Schema for the URL + baudrate form (reused by user and reconfigure)."""
+# Menu options == the per-scheme step ids. Network schemes build a
+# "{scheme}://{host}:{port}" serialx URL; "serial" uses a bare device path.
+_NETWORK_SCHEMES = ("socket", "rfc2217", "esphome")
+_MENU_OPTIONS = ["socket", "rfc2217", "esphome", "serial"]
+_DEFAULT_PORT = 4999  # common TCP serial-gateway port (e.g. Global Cache iTach)
+_DEFAULT_DEVICE = "/dev/ttyUSB0"
+
+
+def _network_schema(host: str = "", port: int = _DEFAULT_PORT) -> vol.Schema:
     return vol.Schema(
         {
-            vol.Required(CONF_URL, default=url): str,
+            vol.Required(CONF_HOST, default=host): str,
+            vol.Required(CONF_PORT, default=port): int,
+        }
+    )
+
+
+def _serial_schema(device: str = _DEFAULT_DEVICE, baudrate: int = DEFAULT_BAUDRATE) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(CONF_DEVICE, default=device): str,
             vol.Required(CONF_BAUDRATE, default=baudrate): int,
         }
     )
+
+
+def _parse_url(url: str) -> tuple[str, str, int | None, str]:
+    """Split a stored serialx URL into (kind, host, port, device).
+
+    kind is one of the menu options. Network URLs yield host/port; anything
+    without a known scheme is treated as a local serial device path.
+    """
+    for scheme in _NETWORK_SCHEMES:
+        prefix = f"{scheme}://"
+        if url.startswith(prefix):
+            host, _, port = url[len(prefix):].partition(":")
+            return scheme, host, (int(port) if port.isdigit() else None), ""
+    return "serial", "", None, url
 
 
 def _options_schema(
@@ -120,88 +157,129 @@ class AnthemSerialConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        errors: dict[str, str] = {}
-
-        if user_input is not None:
-            url = user_input[CONF_URL]
-            baudrate = user_input[CONF_BAUDRATE]
-            try:
-                model, sw_version = await _probe(url, baudrate)
-            except (TimeoutError, OSError) as err:
-                _LOGGER.debug("Probe of %s failed: %s: %s", url, type(err).__name__, err)
-                errors["base"] = "cannot_connect"
-            except Exception:  # noqa: BLE001
-                _LOGGER.exception("Unexpected error probing %s", url)
-                errors["base"] = "unknown"
-            else:
-                # No hardware serial number is available from the Gen1
-                # protocol, so the device identity is an opaque random id
-                # stored in the entry. It stays stable when the URL changes
-                # (reconfigure), keeping the device and its entities intact.
-                await self.async_set_unique_id(uuid4().hex)
-                entry_data = {
-                    CONF_ID: self.unique_id,
-                    CONF_URL: url,
-                    CONF_BAUDRATE: baudrate,
-                    CONF_MODEL: model,
-                }
-                if sw_version is not None:
-                    entry_data[CONF_SW_VERSION] = sw_version
-                return self.async_create_entry(title=model, data=entry_data)
-
-        return self.async_show_form(
-            step_id="user",
-            data_schema=_connection_schema(),
-            errors=errors,
-        )
+        """Pick a connection type, then collect its details in a sub-step."""
+        return self.async_show_menu(step_id="user", menu_options=_MENU_OPTIONS)
 
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Change the connection URL/baudrate without recreating the entry.
+        """Re-pick the connection type — e.g. to swap to a new gateway.
 
-        The stable CONF_ID is preserved, so the device registry entry and
-        all entity history survive moving between e.g. a legacy gateway and
-        an esphome serial proxy.
+        The stable CONF_ID is preserved, so the device registry entry and all
+        entity history survive moving between e.g. a TCP gateway and an esphome
+        serial proxy.
         """
-        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
-        assert entry is not None
+        return self.async_show_menu(step_id="reconfigure", menu_options=_MENU_OPTIONS)
+
+    # ── Per-scheme connection steps (shared by add + reconfigure) ────────────
+
+    async def async_step_socket(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return await self._async_network_step("socket", user_input)
+
+    async def async_step_rfc2217(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return await self._async_network_step("rfc2217", user_input)
+
+    async def async_step_esphome(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return await self._async_network_step("esphome", user_input)
+
+    async def _async_network_step(
+        self, scheme: str, user_input: dict[str, Any] | None
+    ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
-
         if user_input is not None:
-            url = user_input[CONF_URL]
-            baudrate = user_input[CONF_BAUDRATE]
-            try:
-                model, sw_version = await _probe(url, baudrate)
-            except (TimeoutError, OSError) as err:
-                _LOGGER.debug("Probe of %s failed: %s: %s", url, type(err).__name__, err)
-                errors["base"] = "cannot_connect"
-            except Exception:  # noqa: BLE001
-                _LOGGER.exception("Unexpected error probing %s", url)
-                errors["base"] = "unknown"
-            else:
-                new_data = {
-                    **entry.data,
-                    CONF_URL: url,
-                    CONF_BAUDRATE: baudrate,
-                    CONF_MODEL: model,
-                }
-                if sw_version is not None:
-                    new_data[CONF_SW_VERSION] = sw_version
-                self.hass.config_entries.async_update_entry(
-                    entry, title=model, data=new_data
-                )
-                await self.hass.config_entries.async_reload(entry.entry_id)
-                return self.async_abort(reason="reconfigure_successful")
-
+            host, port = user_input[CONF_HOST], user_input[CONF_PORT]
+            url = f"{scheme}://{host}:{port}"
+            result = await self._async_probe_and_finish(url, DEFAULT_BAUDRATE, errors)
+            if result is not None:
+                return result
+        else:
+            host, port = self._network_defaults(scheme)
         return self.async_show_form(
-            step_id="reconfigure",
-            data_schema=_connection_schema(
-                entry.data.get(CONF_URL, ""),
-                entry.data.get(CONF_BAUDRATE, DEFAULT_BAUDRATE),
-            ),
-            errors=errors,
+            step_id=scheme, data_schema=_network_schema(host, port), errors=errors
         )
+
+    async def async_step_serial(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            device, baudrate = user_input[CONF_DEVICE], user_input[CONF_BAUDRATE]
+            result = await self._async_probe_and_finish(device, baudrate, errors)
+            if result is not None:
+                return result
+        else:
+            device, baudrate = self._serial_defaults()
+        return self.async_show_form(
+            step_id="serial", data_schema=_serial_schema(device, baudrate), errors=errors
+        )
+
+    # ── Helpers ──────────────────────────────────────────────────────────────
+
+    def _reconfigure_entry(self) -> ConfigEntry | None:
+        if self.source != SOURCE_RECONFIGURE:
+            return None
+        return self.hass.config_entries.async_get_entry(self.context["entry_id"])
+
+    def _network_defaults(self, scheme: str) -> tuple[str, int]:
+        if entry := self._reconfigure_entry():
+            kind, host, port, _ = _parse_url(entry.data.get(CONF_URL, ""))
+            if kind == scheme:
+                return host, port or _DEFAULT_PORT
+        return "", _DEFAULT_PORT
+
+    def _serial_defaults(self) -> tuple[str, int]:
+        if entry := self._reconfigure_entry():
+            kind, _, _, device = _parse_url(entry.data.get(CONF_URL, ""))
+            if kind == "serial":
+                return device, entry.data.get(CONF_BAUDRATE, DEFAULT_BAUDRATE)
+        return _DEFAULT_DEVICE, DEFAULT_BAUDRATE
+
+    async def _async_probe_and_finish(
+        self, url: str, baudrate: int, errors: dict[str, str]
+    ) -> ConfigFlowResult | None:
+        """Probe; on success create/update the entry, else fill `errors`."""
+        try:
+            model, sw_version = await _probe(url, baudrate)
+        except (TimeoutError, OSError) as err:
+            _LOGGER.debug("Probe of %s failed: %s: %s", url, type(err).__name__, err)
+            errors["base"] = "cannot_connect"
+            return None
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Unexpected error probing %s", url)
+            errors["base"] = "unknown"
+            return None
+        return await self._async_finish(url, baudrate, model, sw_version)
+
+    async def _async_finish(
+        self, url: str, baudrate: int, model: str, sw_version: str | None
+    ) -> ConfigFlowResult:
+        if entry := self._reconfigure_entry():
+            new_data = {**entry.data, CONF_URL: url, CONF_BAUDRATE: baudrate, CONF_MODEL: model}
+            if sw_version is not None:
+                new_data[CONF_SW_VERSION] = sw_version
+            self.hass.config_entries.async_update_entry(entry, title=model, data=new_data)
+            await self.hass.config_entries.async_reload(entry.entry_id)
+            return self.async_abort(reason="reconfigure_successful")
+
+        # No hardware serial number is available from the Gen1 protocol, so the
+        # device identity is an opaque random id stored in the entry. It stays
+        # stable across reconfigure, keeping the device and its entities intact.
+        await self.async_set_unique_id(uuid4().hex)
+        entry_data = {
+            CONF_ID: self.unique_id,
+            CONF_URL: url,
+            CONF_BAUDRATE: baudrate,
+            CONF_MODEL: model,
+        }
+        if sw_version is not None:
+            entry_data[CONF_SW_VERSION] = sw_version
+        return self.async_create_entry(title=model, data=entry_data)
 
 
 class AnthemSerialOptionsFlow(OptionsFlow):
