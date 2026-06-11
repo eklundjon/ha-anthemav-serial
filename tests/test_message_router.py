@@ -65,6 +65,16 @@ def test_invalid_command_logs_last_command(caplog):
     assert "P1P?" in caplog.text
 
 
+def test_already_in_use_logs_last_command(caplog):
+    router, _, _ = _make_router()
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        router.dispatch("Already in use")
+    assert "Already in use" in caplog.text
+    assert "unrouted" not in caplog.text.lower()
+
+
 def test_connection_lost_marks_all_unavailable():
     router, zones, tuner = _make_router()
     for z in zones.values():

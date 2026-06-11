@@ -342,6 +342,24 @@ async def test_zone_extra_attr_bare_response_no_warning(hass, setup_integration,
     assert "unrecognized message" not in caplog.text.lower()
 
 
+async def test_repeated_unchanged_extra_attr_no_warning(hass, setup_integration, caplog):
+    """The device heartbeats identical status; a repeat must not warn (dedupe)."""
+    _, mock_client = setup_integration
+    on_message = mock_client._on_message
+
+    on_message("P1P1")
+    on_message("P1C0")  # compression = Normal (first time: a real change)
+    await hass.async_block_till_done()
+
+    with caplog.at_level("WARNING"):
+        on_message("P1C0")  # identical repeat — recognized but unchanged
+    await hass.async_block_till_done()
+
+    assert "unrecognized message" not in caplog.text.lower()
+    state = hass.states.get(zone_entity_id(hass, ZONE_MAIN))
+    assert state.attributes["compression"] == "Normal"
+
+
 async def test_zone_unrecognized_message_logs_warning(hass, setup_integration, caplog):
     _, mock_client = setup_integration
     on_message = mock_client._on_message
