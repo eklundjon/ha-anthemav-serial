@@ -3,31 +3,59 @@
     "step": {
       "user": {
         "title": "Anthem Serial Connection",
-        "description": "Connects to an Anthem Gen1 A/V processor RS-232 control port. Supported URLs: socket://host:port (TCP serial gateway, e.g. Global Cache iTach), rfc2217://host:port, esphome://host:port, or a local device path like /dev/ttyUSB0.",
-        "data": {
-          "url": "Connection URL",
-          "baudrate": "Baud rate"
-        },
-        "data_description": {
-          "url": "serialx connection URL for the Anthem device",
-          "baudrate": "Only used for direct serial connections; ignored for socket://, rfc2217:// and esphome://"
+        "description": "How is the Anthem's RS-232 control port connected?",
+        "menu_options": {
+          "socket": "TCP serial gateway (e.g. Global Cache iTach)",
+          "rfc2217": "RFC2217 gateway",
+          "esphome": "ESPHome serial proxy",
+          "serial": "Local serial device"
         }
       },
       "reconfigure": {
         "title": "Change Anthem Connection",
-        "description": "Update the connection URL or baud rate. The device and its entity history are preserved.",
-        "data": {
-          "url": "Connection URL",
-          "baudrate": "Baud rate"
-        },
+        "description": "Pick how the Anthem is connected. The device and its entity history are preserved, so you can move it to a new gateway.",
+        "menu_options": {
+          "socket": "TCP serial gateway (e.g. Global Cache iTach)",
+          "rfc2217": "RFC2217 gateway",
+          "esphome": "ESPHome serial proxy",
+          "serial": "Local serial device"
+        }
+      },
+      "socket": {
+        "title": "TCP serial gateway",
+        "data": { "host": "Host", "port": "Port" },
         "data_description": {
-          "url": "serialx connection URL for the Anthem device",
-          "baudrate": "Only used for direct serial connections; ignored for socket://, rfc2217:// and esphome://"
+          "host": "IP address or hostname of the serial gateway",
+          "port": "TCP port of the serial interface"
+        }
+      },
+      "rfc2217": {
+        "title": "RFC2217 gateway",
+        "data": { "host": "Host", "port": "Port" },
+        "data_description": {
+          "host": "IP address or hostname of the RFC2217 gateway",
+          "port": "TCP port of the RFC2217 service"
+        }
+      },
+      "esphome": {
+        "title": "ESPHome serial proxy",
+        "data": { "host": "Host", "port": "Port" },
+        "data_description": {
+          "host": "IP address or hostname of the ESPHome device",
+          "port": "Port of the ESPHome serial proxy"
+        }
+      },
+      "serial": {
+        "title": "Local serial device",
+        "data": { "device": "Device path", "baudrate": "Baud rate" },
+        "data_description": {
+          "device": "Local serial device, e.g. /dev/ttyUSB0",
+          "baudrate": "Anthem Gen1 uses 9600"
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect — check the URL and baud rate",
+      "cannot_connect": "Failed to connect — check the connection details",
       "unknown": "Unexpected error"
     },
     "abort": {
