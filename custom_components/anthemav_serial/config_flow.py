@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 from uuid import uuid4
@@ -9,6 +10,8 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.helpers import selector
+
+_LOGGER = logging.getLogger(__name__)
 
 from .client import AnthemClient
 from .const import (
@@ -124,9 +127,11 @@ class AnthemSerialConfigFlow(ConfigFlow, domain=DOMAIN):
             baudrate = user_input[CONF_BAUDRATE]
             try:
                 model, sw_version = await _probe(url, baudrate)
-            except (TimeoutError, OSError):
+            except (TimeoutError, OSError) as err:
+                _LOGGER.debug("Probe of %s failed: %s: %s", url, type(err).__name__, err)
                 errors["base"] = "cannot_connect"
             except Exception:  # noqa: BLE001
+                _LOGGER.exception("Unexpected error probing %s", url)
                 errors["base"] = "unknown"
             else:
                 # No hardware serial number is available from the Gen1
@@ -168,9 +173,11 @@ class AnthemSerialConfigFlow(ConfigFlow, domain=DOMAIN):
             baudrate = user_input[CONF_BAUDRATE]
             try:
                 model, sw_version = await _probe(url, baudrate)
-            except (TimeoutError, OSError):
+            except (TimeoutError, OSError) as err:
+                _LOGGER.debug("Probe of %s failed: %s: %s", url, type(err).__name__, err)
                 errors["base"] = "cannot_connect"
             except Exception:  # noqa: BLE001
+                _LOGGER.exception("Unexpected error probing %s", url)
                 errors["base"] = "unknown"
             else:
                 new_data = {

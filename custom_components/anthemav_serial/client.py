@@ -93,7 +93,13 @@ class AnthemClient:
                 pass
         if self._writer:
             self._writer.close()
-            await self._writer.wait_closed()
+            try:
+                await self._writer.wait_closed()
+            except OSError as err:
+                # Teardown is best-effort: wait_closed() re-raises whatever
+                # closed the transport (e.g. "socket closed by peer" when a
+                # single-client serial gateway drops us). Not a failure to act on.
+                _LOGGER.debug("Ignoring error closing %s: %s", self.url, err)
             self._writer = None
             self._reader = None
 

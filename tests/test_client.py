@@ -260,3 +260,15 @@ async def test_stop_sets_running_false():
     client._listen_task = asyncio.create_task(client._listen())
     await client.stop()
     assert not client._running
+
+
+async def test_stop_survives_peer_closed_socket():
+    """wait_closed() re-raises the close cause (e.g. a single-client gateway
+    dropping us); stop() must swallow it rather than surface a false error."""
+    reader, writer = _make_stream(lines=[b""])
+    client = await _connected_client(reader, writer)
+    writer.wait_closed = AsyncMock(side_effect=OSError("socket closed by peer"))
+    client._running = True
+    client._listen_task = asyncio.create_task(client._listen())
+    await client.stop()  # must not raise
+    assert client._writer is None
