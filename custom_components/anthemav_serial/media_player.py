@@ -14,6 +14,7 @@ from homeassistant.components.media_player import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .client import AnthemClient
@@ -41,6 +42,7 @@ from .const import (
     cmd_volume,
     cmd_volume_down,
     cmd_volume_up,
+    message_signal,
 )
 
 # Sound-mode names that map to a settable mode (Main zone). Used to decide
@@ -85,14 +87,23 @@ class MessageRouter:
         tuner: AnthemTunerEntity,
         client: AnthemClient,
         all_entities: list[MediaPlayerEntity],
+        hass: HomeAssistant | None = None,
+        entry_id: str | None = None,
     ) -> None:
         self._zone_map = zone_map
         self._tuner = tuner
         self._client = client
         self._all_entities = all_entities
+        self._hass = hass
+        self._signal = message_signal(entry_id) if entry_id else None
 
     def dispatch(self, message: str) -> None:
         _LOGGER.debug("RX: %r", message)
+        # Re-broadcast every raw message so other platforms (switch, …) can
+        # observe the device stream. Guarded so the router stays unit-testable
+        # without a hass instance.
+        if self._hass is not None and self._signal is not None:
+            async_dispatcher_send(self._hass, self._signal, message)
         for zone, entity in self._zone_map.items():
             if message.startswith(f"P{zone}"):
                 entity.handle_message(message)
@@ -153,7 +164,7 @@ async def async_setup_entry(
     tuner = AnthemTunerEntity(client, entry)
     all_entities = [*zone_entities, tuner]
 
-    router = MessageRouter(zone_map, tuner, client, all_entities)
+    router = MessageRouter(zone_map, tuner, client, all_entities, hass, entry.entry_id)
     client.set_handlers(
         router.dispatch, router.connection_lost, router.connection_restored
     )

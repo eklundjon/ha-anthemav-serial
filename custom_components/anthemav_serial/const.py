@@ -51,6 +51,27 @@ def cmd_sound_mode(zone: int, source: str, mode: str) -> str:
     # (CSV: P1E,nx). The active source char is required, not just the mode.
     return f"P{zone}E{source}{mode}"
 
+def cmd_tone_controls(zone: int, enabled: bool) -> str:
+    # P{z}TE: 1=tone controls enabled, 0=bypassed.
+    return f"P{zone}TE{1 if enabled else 0}"
+
+def cmd_panel_lock(locked: bool) -> str:
+    # FPL: 1=front panel locked (except power), 0=unlocked. Write-only.
+    return f"FPL{1 if locked else 0}"
+
+def cmd_auto_timers(enabled: bool) -> str:
+    # STE: enable/disable all auto on/off timers.
+    return f"STE{1 if enabled else 0}"
+
+
+def message_signal(entry_id: str) -> str:
+    """Dispatcher signal carrying every raw device message for an entry.
+
+    Lets non-media_player platforms (switch, etc.) observe the device stream
+    without each one wiring its own client handler.
+    """
+    return f"{DOMAIN}_message_{entry_id}"
+
 # Source map — keys are the characters sent to/received from the device
 SOURCES = {
     "0": "CD",
