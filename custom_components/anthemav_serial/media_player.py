@@ -109,7 +109,9 @@ class MessageRouter:
         if message == "Unit Off":
             _LOGGER.debug("Device status: %s", message)
             return
-        if message in ("Invalid Command", "Parameter Out-of-range"):
+        if message in ("Invalid Command", "Parameter Out-of-range", "Already in use"):
+            # "Already in use" = the selected source's digital input is assigned
+            # to another source (input conflict); the command didn't fully apply.
             _LOGGER.warning(
                 "Device returned %r (last sent: %r)", message, self._client.last_command
             )
@@ -244,6 +246,7 @@ class AnthemZoneEntity(MediaPlayerEntity):
     def handle_message(self, message: str) -> None:
         """Parse a push status message and update entity state."""
         changed = False
+        recognized = False  # matched a known pattern, even if the value was unchanged
         z = self.zone
 
         # Zone-off notification (e.g. "Main Off", "Zone2 Off") — device sends this
@@ -311,26 +314,31 @@ class AnthemZoneEntity(MediaPlayerEntity):
         # Extra attributes
         for pattern, attr_name, enum_map, src_prefix in self._extra_attr_parsers:
             if m := pattern.match(message):
+                recognized = True
                 raw = m.group(1).strip()
                 if src_prefix and raw:
                     raw = raw[1:]  # strip leading source-index char
                 if not raw:
                     # Empty payload — device acknowledged query with no data (e.g. P1Q)
-                    changed = True
                     break
                 if enum_map is not None:
-                    self._extra_attrs[attr_name] = enum_map.get(raw, raw)
+                    value: Any = enum_map.get(raw, raw)
                 else:
                     try:
-                        self._extra_attrs[attr_name] = float(raw)
+                        value = float(raw)
                     except ValueError:
-                        self._extra_attrs[attr_name] = raw
-                changed = True
+                        value = raw
+                # The device re-emits unchanged status as a heartbeat (e.g. a
+                # flood of identical P1C0/P1TE0); only flag a state write when
+                # the value actually moved.
+                if self._extra_attrs.get(attr_name) != value:
+                    self._extra_attrs[attr_name] = value
+                    changed = True
                 break
 
         if changed and self.hass:
             self.async_write_ha_state()
-        elif not changed:
+        elif not changed and not recognized:
             _LOGGER.warning("Zone %s: unrecognized message %r", self.zone, message)
 
     @property
