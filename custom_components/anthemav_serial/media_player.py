@@ -24,6 +24,8 @@ from .const import (
     DOMAIN,
     NON_QUERYABLE_SUFFIXES,
     SELECTABLE_SOURCES,
+    SOUND_MODE_BY_NAME,
+    SOUND_MODES,
     VOLUME_MAX,
     VOLUME_MIN,
     ZONE_1_ONLY_QUERY_SUFFIXES,
@@ -34,11 +36,16 @@ from .const import (
     ZONE_MAIN,
     cmd_mute,
     cmd_power,
+    cmd_sound_mode,
     cmd_source,
     cmd_volume,
     cmd_volume_down,
     cmd_volume_up,
 )
+
+# Sound-mode names that map to a settable mode (Main zone). Used to decide
+# whether the live audio_fx value belongs in the curated sound_mode_list.
+_SOUND_MODE_VALUES = frozenset(SOUND_MODES.values())
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -188,6 +195,13 @@ class AnthemZoneEntity(MediaPlayerEntity):
         self._attr_is_volume_muted: bool | None = None
         self._attr_source: str | None = None
         self._source_id: str | None = None
+        self._attr_sound_mode: str | None = None
+
+        # Sound-mode selector is Main-zone only — zones 2/3 are downmix analog
+        # with no DSP listening modes (the FX commands are zone-1-only).
+        if zone == ZONE_MAIN:
+            self._attr_supported_features |= MediaPlayerEntityFeature.SELECT_SOUND_MODE
+            self._attr_sound_mode_list = list(SOUND_MODES.values())
 
         # Source maps built from options; rebuilt on entry reload.
         self._sources = _effective_sources(entry)
@@ -336,6 +350,16 @@ class AnthemZoneEntity(MediaPlayerEntity):
                     changed = True
                 break
 
+        # Mirror the live audio effect (P{z}E) into sound_mode on the Main zone.
+        # Only surface it when it's one of the curated, settable modes; for an
+        # exotic/format-specific mode the selector simply shows nothing selected.
+        if z == ZONE_MAIN:
+            fx = self._extra_attrs.get("audio_fx")
+            desired = fx if fx in _SOUND_MODE_VALUES else None
+            if desired != self._attr_sound_mode:
+                self._attr_sound_mode = desired
+                changed = True
+
         if changed and self.hass:
             self.async_write_ha_state()
         elif not changed and not recognized:
@@ -390,6 +414,22 @@ class AnthemZoneEntity(MediaPlayerEntity):
             return
         _LOGGER.debug("Zone %s: selecting source %r (id=%s)", self.zone, source, source_id)
         await self._client.send(cmd_source(self.zone, source_id))
+
+    async def async_select_sound_mode(self, sound_mode: str) -> None:
+        mode = SOUND_MODE_BY_NAME.get(sound_mode)
+        if mode is None:
+            _LOGGER.warning(
+                "Zone %s: unknown sound mode %r — known: %s",
+                self.zone, sound_mode, list(SOUND_MODE_BY_NAME),
+            )
+            return
+        if self._source_id is None:
+            # P{z}E sets the effect for the active source, so we need to know it.
+            _LOGGER.warning(
+                "Zone %s: cannot set sound mode — active source unknown", self.zone
+            )
+            return
+        await self._client.send(cmd_sound_mode(self.zone, self._source_id, mode))
 
 
 

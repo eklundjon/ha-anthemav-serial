@@ -46,6 +46,11 @@ def cmd_mute(zone: int, mute: bool) -> str:
 def cmd_source(zone: int, source: str) -> str:
     return f"P{zone}S{source}"
 
+def cmd_sound_mode(zone: int, source: str, mode: str) -> str:
+    # P{z}E{source}{mode} sets the per-source stereo/2.0 listening effect
+    # (CSV: P1E,nx). The active source char is required, not just the mode.
+    return f"P{zone}E{source}{mode}"
+
 # Source map — keys are the characters sent to/received from the device
 SOURCES = {
     "0": "CD",
@@ -110,6 +115,15 @@ _FX_MODES: dict[str, str] = {
     "9": "All-Channel Mono", "A": "Mono", "B": "Mono Academy",
     "C": "ProLogic IIx Matrix", "D": "ProLogic IIx Game",
 }
+
+# Sound modes exposed to HA's sound-mode selector (Main zone only). These are
+# the stereo/2.0 listening effects set by P{z}E{source}{mode}. Curated to the
+# digit-keyed modes (0-9): every common mode, all confirmed settable on the
+# AVM 50v, and free of the a-d upper/lowercase ambiguity. The exotic a-d modes
+# (Mono, Mono Academy, ProLogic IIx Matrix/Game) are intentionally omitted.
+SOUND_MODES: dict[str, str] = {k: v for k, v in _FX_MODES.items() if k.isdigit()}
+SOUND_MODE_BY_NAME: dict[str, str] = {v: k for k, v in SOUND_MODES.items()}
+
 _DOLBY_EX_FX: dict[str, str] = {
     "0": "Off", "1": "Dolby Digital EX", "2": "THX Surround EX",
     "3": "ProLogic IIx Movie", "4": "ProLogic IIx Movie THX",
