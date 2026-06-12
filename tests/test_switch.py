@@ -236,3 +236,28 @@ async def test_trigger_not_reapplied_when_off(hass, mock_client):
     await hass.async_block_till_done()
     sent = [c.args[0] for c in mock_client.send.call_args_list if c.args]
     assert not any("t1T" in s or "t2T" in s or "t3T" in s for s in sent)
+
+
+# ── RestoreEntity (optimistic switches survive restart) ──────────────────────────
+
+async def test_panel_lock_restores_last_state(hass, config_entry, mock_client):
+    from homeassistant.core import State
+    from pytest_homeassistant_custom_component.common import mock_restore_cache
+
+    mock_restore_cache(hass, [State("switch.avm_50v_front_panel_lock", "on")])
+    with (
+        patch("custom_components.anthemav_serial.AnthemClient", return_value=mock_client),
+        patch("custom_components.anthemav_serial.media_player.asyncio.sleep", AsyncMock()),
+    ):
+        await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+    assert hass.states.get("switch.avm_50v_front_panel_lock").state == "on"
+
+
+async def test_trigger_restores_last_state(hass, mock_client):
+    from homeassistant.core import State
+    from pytest_homeassistant_custom_component.common import mock_restore_cache
+
+    mock_restore_cache(hass, [State("switch.avm_50v_trigger_1", "on")])
+    await _setup_with_options(hass, mock_client, {"trigger_control": True})
+    assert hass.states.get("switch.avm_50v_trigger_1").state == "on"

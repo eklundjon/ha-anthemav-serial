@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .client import AnthemClient
 from .const import (
@@ -157,10 +158,11 @@ class AnthemRecordSourceSelect(_AnthemSelectBase):
         self.async_write_ha_state()
 
 
-class AnthemBrightnessSelect(_AnthemSelectBase):
+class AnthemBrightnessSelect(_AnthemSelectBase, RestoreEntity):
     """Front-panel display brightness (FP): Off / Low / Medium / High.
 
-    Write-only on the device, so state is whatever HA last set (optimistic).
+    Write-only on the device (not queryable), so HA is the source of truth — the
+    last set value is restored across restarts rather than coming up unknown.
     """
 
     _attr_icon = "mdi:brightness-6"
@@ -173,6 +175,11 @@ class AnthemBrightnessSelect(_AnthemSelectBase):
         self._attr_options = list(FP_BRIGHTNESS.values())
         self._by_label = {v: k for k, v in FP_BRIGHTNESS.items()}
         self._attr_current_option: str | None = None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if (last := await self.async_get_last_state()) and last.state in self._attr_options:
+            self._attr_current_option = last.state
 
     async def async_select_option(self, option: str) -> None:
         await self._client.send(cmd_fp_brightness(self._by_label[option]))

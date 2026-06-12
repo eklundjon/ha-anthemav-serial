@@ -89,3 +89,21 @@ async def test_brightness_select_sends_command(hass, setup_integration):
     mock_client.send.reset_mock()
     await _select(hass, _eid(hass, f"{MOCK_ID}_fp_brightness"), "High")
     mock_client.send.assert_called_once_with("FP3")
+
+
+async def test_brightness_restores_last_state(hass, config_entry, mock_client):
+    """The write-only brightness comes up at its last value, not unknown."""
+    from unittest.mock import AsyncMock, patch
+
+    from homeassistant.core import State
+    from pytest_homeassistant_custom_component.common import mock_restore_cache
+
+    mock_restore_cache(hass, [State("select.avm_50v_front_panel_brightness", "Medium")])
+    with (
+        patch("custom_components.anthemav_serial.AnthemClient", return_value=mock_client),
+        patch("custom_components.anthemav_serial.media_player.asyncio.sleep", AsyncMock()),
+    ):
+        await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert hass.states.get("select.avm_50v_front_panel_brightness").state == "Medium"

@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .client import AnthemClient
 from .const import (
@@ -148,9 +149,10 @@ class AnthemToneDefeatSwitch(_AnthemSwitchBase):
         self.async_write_ha_state()
 
 
-class AnthemPanelLockSwitch(_AnthemSwitchBase):
+class AnthemPanelLockSwitch(_AnthemSwitchBase, RestoreEntity):
     """Front-panel lockout (FPL). Write-only, but reliably state-trackable: it
     only clears via our command or a unit/main power-off — and we observe those.
+    The last state is restored across restarts; a power-off still forces it off.
     """
 
     _attr_icon = "mdi:lock"
@@ -162,8 +164,13 @@ class AnthemPanelLockSwitch(_AnthemSwitchBase):
         super().__init__(client, entry)
         self._attr_name = "Front panel lock"
         self._attr_unique_id = f"{entry.data[CONF_ID]}_panel_lock"
-        # Unknown at cold start (no query); default off, then tracked.
+        # No query; default off, restored from last state, then tracked.
         self._attr_is_on = False
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if (last := await self.async_get_last_state()) is not None and last.state in ("on", "off"):
+            self._attr_is_on = last.state == "on"
 
     @callback
     def _handle_message(self, message: str) -> None:
@@ -216,10 +223,11 @@ class AnthemAutoTimersSwitch(_AnthemSwitchBase):
         self.async_write_ha_state()
 
 
-class AnthemTriggerSwitch(_AnthemSwitchBase):
+class AnthemTriggerSwitch(_AnthemSwitchBase, RestoreEntity):
     """A 12V trigger output (t{n}T). Write-only (assumed state). Each write
     asserts RS-232 trigger mode (StE2); on main power-on the held state is
-    re-applied, since the outputs come up off after a power cycle.
+    re-applied, since the outputs come up off after a power cycle. The last
+    state is restored across restarts (HA is the source of truth).
     """
 
     _attr_icon = "mdi:flash"
@@ -232,6 +240,11 @@ class AnthemTriggerSwitch(_AnthemSwitchBase):
         self._attr_name = f"Trigger {num}"
         self._attr_unique_id = f"{entry.data[CONF_ID]}_trigger{num}"
         self._attr_is_on = False  # optimistic; HA is the source of truth
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if (last := await self.async_get_last_state()) is not None and last.state in ("on", "off"):
+            self._attr_is_on = last.state == "on"
 
     @callback
     def _handle_message(self, message: str) -> None:
