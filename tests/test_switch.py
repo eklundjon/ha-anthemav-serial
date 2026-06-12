@@ -56,35 +56,44 @@ async def test_switch_entities_created(hass, setup_integration):
     assert f"{MOCK_ID}_auto_timers" in uids
 
 
-# ── Tone controls ────────────────────────────────────────────────────────────────
+# ── Tone defeat (Main only; inverted: on = bypassed) ─────────────────────────────
 
-async def test_tone_control_reflects_push(hass, setup_integration):
+async def test_tone_defeat_reflects_push(hass, setup_integration):
     on_message = setup_integration[1]._on_message
-    on_message("P1TE1")  # enabled
+    on_message("P1TE0")  # bypassed -> defeat on
     await hass.async_block_till_done()
     assert hass.states.get(_tone_id(hass, ZONE_MAIN)).state == "on"
 
-    on_message("P1TE0")  # bypassed
+    on_message("P1TE1")  # enabled -> defeat off (normal)
     await hass.async_block_till_done()
     assert hass.states.get(_tone_id(hass, ZONE_MAIN)).state == "off"
 
 
-async def test_tone_control_queries_state_on_add(hass, setup_integration):
+async def test_tone_defeat_queries_state_on_add(hass, setup_integration):
     _, mock_client = setup_integration
     sent = [c.args[0] for c in mock_client.send.call_args_list]
     assert "P1TE?" in sent
 
 
-async def test_tone_control_turn_on_sends_command(hass, setup_integration):
+async def test_tone_defeat_turn_on_bypasses(hass, setup_integration):
     _, mock_client = setup_integration
     await hass.async_block_till_done()
     mock_client.send.reset_mock()
 
+    # Defeat on -> bypass the tone controls (TE0).
     await hass.services.async_call(
         "switch", "turn_on", {"entity_id": _tone_id(hass, ZONE_MAIN)}, blocking=True
     )
-    mock_client.send.assert_called_once_with("P1TE1")
+    mock_client.send.assert_called_once_with("P1TE0")
     assert hass.states.get(_tone_id(hass, ZONE_MAIN)).state == "on"
+
+    mock_client.send.reset_mock()
+    # Defeat off -> normal operation (TE1).
+    await hass.services.async_call(
+        "switch", "turn_off", {"entity_id": _tone_id(hass, ZONE_MAIN)}, blocking=True
+    )
+    mock_client.send.assert_called_once_with("P1TE1")
+    assert hass.states.get(_tone_id(hass, ZONE_MAIN)).state == "off"
 
 
 # ── Panel lock ───────────────────────────────────────────────────────────────────

@@ -47,7 +47,7 @@ async def async_setup_entry(
     # P1TE). Zones 2/3 are usually off and don't report tone state, so a switch
     # there would sit in a misleading "unknown"/optimistic state — those zones
     # get fire-and-forget "bypass"/"enable" commands on their remote entities.
-    entities: list[SwitchEntity] = [AnthemToneControlSwitch(client, ZONE_MAIN, entry)]
+    entities: list[SwitchEntity] = [AnthemToneDefeatSwitch(client, ZONE_MAIN, entry)]
     entities.append(AnthemPanelLockSwitch(client, entry))
     entities.append(AnthemAutoTimersSwitch(client, entry))
     # Triggers are opt-in (options flow): enabling them takes the unit's 12V
@@ -91,15 +91,18 @@ class _AnthemSwitchBase(SwitchEntity):
         """Update state from a raw device message (overridden by subclasses)."""
 
 
-class AnthemToneControlSwitch(_AnthemSwitchBase):
-    """Per-zone tone controls (P{z}TE): on = enabled, off = bypassed."""
+class AnthemToneDefeatSwitch(_AnthemSwitchBase):
+    """Main-zone tone defeat (P{z}TE). On = tone controls bypassed (defeated);
+    off = normal operation (enabled). Inverted from the device flag (TE1 =
+    enabled) so the switch is off in the default/normal state.
+    """
 
     _attr_icon = "mdi:tune-vertical"
 
     def __init__(self, client: AnthemClient, zone: int, entry: ConfigEntry) -> None:
         super().__init__(client, entry)
         self.zone = zone
-        self._attr_name = f"{_ZONE_NAMES[zone]} tone controls"
+        self._attr_name = f"{_ZONE_NAMES[zone]} tone defeat"
         self._attr_unique_id = f"{entry.data[CONF_ID]}_zone{zone}_tone"
         self._attr_is_on: bool | None = None
         self._re = re.compile(rf"^P{zone}TE([01])$")
@@ -110,18 +113,20 @@ class AnthemToneControlSwitch(_AnthemSwitchBase):
     @callback
     def _handle_message(self, message: str) -> None:
         if m := self._re.match(message):
-            is_on = m.group(1) == "1"
-            if is_on != self._attr_is_on:
-                self._attr_is_on = is_on
+            defeated = m.group(1) == "0"  # TE0 = bypassed = defeat on
+            if defeated != self._attr_is_on:
+                self._attr_is_on = defeated
                 self.async_write_ha_state()
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self._client.send(cmd_tone_controls(self.zone, True))
+        # Defeat on -> bypass the tone controls (TE0).
+        await self._client.send(cmd_tone_controls(self.zone, False))
         self._attr_is_on = True
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self._client.send(cmd_tone_controls(self.zone, False))
+        # Defeat off -> normal operation, tone controls enabled (TE1).
+        await self._client.send(cmd_tone_controls(self.zone, True))
         self._attr_is_on = False
         self.async_write_ha_state()
 
