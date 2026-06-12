@@ -43,10 +43,11 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     client: AnthemClient = hass.data[DOMAIN][entry.entry_id]
-    entities: list[SwitchEntity] = [
-        AnthemToneControlSwitch(client, zone, entry)
-        for zone in (ZONE_MAIN, ZONE_2, ZONE_3)
-    ]
+    # Tone control is a switch on the Main zone only (it reliably reports
+    # P1TE). Zones 2/3 are usually off and don't report tone state, so a switch
+    # there would sit in a misleading "unknown"/optimistic state — those zones
+    # get fire-and-forget "bypass"/"enable" commands on their remote entities.
+    entities: list[SwitchEntity] = [AnthemToneControlSwitch(client, ZONE_MAIN, entry)]
     entities.append(AnthemPanelLockSwitch(client, entry))
     entities.append(AnthemAutoTimersSwitch(client, entry))
     # Triggers are opt-in (options flow): enabling them takes the unit's 12V

@@ -149,3 +149,38 @@ async def test_turn_off_sends_power_off(hass, setup_integration):
         blocking=True,
     )
     mock_client.send.assert_called_once_with("P1P0")
+
+
+# ── Tone controls (bypass / enable) ──────────────────────────────────────────────
+
+async def test_bypass_command_zone2(hass, setup_integration):
+    _, mock_client = setup_integration
+    mock_client.send.reset_mock()
+    await hass.services.async_call(
+        "remote", "send_command",
+        {"entity_id": remote_entity_id(hass, ZONE_2), "command": ["bypass"]},
+        blocking=True,
+    )
+    mock_client.send.assert_called_once_with("P2TE0")  # tone bypassed
+
+
+async def test_enable_command_zone3(hass, setup_integration):
+    _, mock_client = setup_integration
+    mock_client.send.reset_mock()
+    await hass.services.async_call(
+        "remote", "send_command",
+        {"entity_id": remote_entity_id(hass, ZONE_3), "command": ["enable"]},
+        blocking=True,
+    )
+    mock_client.send.assert_called_once_with("P3TE1")  # tone enabled
+
+
+async def test_bypass_enable_on_main_remote(hass, setup_integration):
+    _, mock_client = setup_integration
+    mock_client.send.reset_mock()
+    await hass.services.async_call(
+        "remote", "send_command",
+        {"entity_id": remote_entity_id(hass, ZONE_MAIN), "command": ["bypass", "enable"]},
+        blocking=True,
+    )
+    assert [c.args[0] for c in mock_client.send.call_args_list] == ["P1TE0", "P1TE1"]

@@ -48,9 +48,10 @@ def _timers_id(hass) -> str:
 async def test_switch_entities_created(hass, setup_integration):
     reg = er.async_get(hass)
     uids = {e.unique_id for e in reg.entities.values() if e.domain == "switch"}
-    assert f"{MOCK_ID}_zone1_tone" in uids
-    assert f"{MOCK_ID}_zone2_tone" in uids
-    assert f"{MOCK_ID}_zone3_tone" in uids
+    assert f"{MOCK_ID}_zone1_tone" in uids  # Main tone switch
+    # Zones 2/3 tone are remote commands, not switches.
+    assert f"{MOCK_ID}_zone2_tone" not in uids
+    assert f"{MOCK_ID}_zone3_tone" not in uids
     assert f"{MOCK_ID}_panel_lock" in uids
     assert f"{MOCK_ID}_auto_timers" in uids
 
@@ -80,10 +81,10 @@ async def test_tone_control_turn_on_sends_command(hass, setup_integration):
     mock_client.send.reset_mock()
 
     await hass.services.async_call(
-        "switch", "turn_on", {"entity_id": _tone_id(hass, ZONE_2)}, blocking=True
+        "switch", "turn_on", {"entity_id": _tone_id(hass, ZONE_MAIN)}, blocking=True
     )
-    mock_client.send.assert_called_once_with("P2TE1")
-    assert hass.states.get(_tone_id(hass, ZONE_2)).state == "on"
+    mock_client.send.assert_called_once_with("P1TE1")
+    assert hass.states.get(_tone_id(hass, ZONE_MAIN)).state == "on"
 
 
 # ── Panel lock ───────────────────────────────────────────────────────────────────

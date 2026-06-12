@@ -21,6 +21,7 @@ from .const import (
     ZONE_MAIN,
     ZONE_2,
     ZONE_3,
+    cmd_tone_controls,
     cmd_volume_down,
     cmd_volume_up,
 )
@@ -53,11 +54,16 @@ def _resolve_command(zone: int, cmd: str) -> str | None:
       source_seek_up / source_seek_down
       power_on / power_off
       source_{key}              — e.g. source_0 (CD), source_5 (DVD1)
+      bypass / enable           — tone controls: bypass (defeat) or enable
     """
     if cmd == "volume_up":
         return cmd_volume_up(zone)
     if cmd == "volume_down":
         return cmd_volume_down(zone)
+    if cmd == "bypass":
+        return cmd_tone_controls(zone, False)  # tone controls bypassed (defeat)
+    if cmd == "enable":
+        return cmd_tone_controls(zone, True)  # tone controls enabled (normal)
     if cmd == "mute_toggle":
         return f"P{zone}MT"
     if cmd == "source_seek_up":
@@ -111,7 +117,8 @@ class AnthemRemoteEntity(RemoteEntity):
                 _LOGGER.warning(
                     "Remote zone %s: unknown command %r — valid commands: "
                     "volume_up, volume_down, mute_toggle, source_seek_up, "
-                    "source_seek_down, power_on, power_off, source_{key}",
+                    "source_seek_down, power_on, power_off, bypass, enable, "
+                    "source_{key}",
                     self.zone, cmd,
                 )
                 continue
