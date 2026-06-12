@@ -77,6 +77,8 @@ async def test_tone_defeat_queries_state_on_add(hass, setup_integration):
 
 async def test_tone_defeat_turn_on_bypasses(hass, setup_integration):
     _, mock_client = setup_integration
+    on_message = mock_client._on_message
+    on_message("P1TE1")  # zone reports -> switch becomes available
     await hass.async_block_till_done()
     mock_client.send.reset_mock()
 
@@ -94,6 +96,35 @@ async def test_tone_defeat_turn_on_bypasses(hass, setup_integration):
     )
     mock_client.send.assert_called_once_with("P1TE1")
     assert hass.states.get(_tone_id(hass, ZONE_MAIN)).state == "off"
+
+
+async def test_tone_defeat_unavailable_until_reported(hass, setup_integration):
+    """No P1TE value yet -> unavailable (not a misleading unknown toggle)."""
+    state = hass.states.get(_tone_id(hass, ZONE_MAIN))
+    assert state.state == "unavailable"
+
+
+async def test_tone_defeat_unavailable_when_main_off(hass, setup_integration):
+    on_message = setup_integration[1]._on_message
+    on_message("P1TE0")  # available + on
+    await hass.async_block_till_done()
+    assert hass.states.get(_tone_id(hass, ZONE_MAIN)).state == "on"
+
+    on_message("Main Off")  # zone powers off
+    await hass.async_block_till_done()
+    assert hass.states.get(_tone_id(hass, ZONE_MAIN)).state == "unavailable"
+
+
+async def test_tone_defeat_requeries_on_power_on(hass, setup_integration):
+    _, mock_client = setup_integration
+    on_message = mock_client._on_message
+    on_message("Main Off")
+    await hass.async_block_till_done()
+    mock_client.send.reset_mock()
+
+    on_message("P1P1")  # main powers on -> re-query tone state
+    await hass.async_block_till_done()
+    assert "P1TE?" in [c.args[0] for c in mock_client.send.call_args_list if c.args]
 
 
 # ── Panel lock ───────────────────────────────────────────────────────────────────

@@ -93,8 +93,12 @@ class _AnthemSwitchBase(SwitchEntity):
 
 class AnthemToneDefeatSwitch(_AnthemSwitchBase):
     """Main-zone tone defeat (P{z}TE). On = tone controls bypassed (defeated);
-    off = normal operation (enabled). Inverted from the device flag (TE1 =
-    enabled) so the switch is off in the default/normal state.
+    off = normal operation (enabled) — inverted from the device flag (TE1 =
+    enabled) so the switch is off in the default state.
+
+    A powered-off zone can't report its tone state (the P{z}TE? query comes back
+    as "Main Off"), so the switch is *unavailable* while the zone is off rather
+    than guessing, and a true toggle once the zone is on and reports.
     """
 
     _attr_icon = "mdi:tune-vertical"
@@ -105,7 +109,11 @@ class AnthemToneDefeatSwitch(_AnthemSwitchBase):
         self._attr_name = f"{_ZONE_NAMES[zone]} tone defeat"
         self._attr_unique_id = f"{entry.data[CONF_ID]}_zone{zone}_tone"
         self._attr_is_on: bool | None = None
+        self._attr_available = False  # until the zone reports its tone state
         self._re = re.compile(rf"^P{zone}TE([01])$")
+        zone_off = {ZONE_MAIN: "Main Off", ZONE_2: "Zone2 Off", ZONE_3: "Zone3 Off"}[zone]
+        self._power_off = frozenset({f"P{zone}P0", zone_off, "Unit Off"})
+        self._power_on = f"P{zone}P1"
 
     async def _request_state(self) -> None:
         await self._client.send(f"P{self.zone}TE?")
@@ -114,9 +122,18 @@ class AnthemToneDefeatSwitch(_AnthemSwitchBase):
     def _handle_message(self, message: str) -> None:
         if m := self._re.match(message):
             defeated = m.group(1) == "0"  # TE0 = bypassed = defeat on
-            if defeated != self._attr_is_on:
+            if defeated != self._attr_is_on or not self._attr_available:
                 self._attr_is_on = defeated
+                self._attr_available = True
                 self.async_write_ha_state()
+        elif message in self._power_off:
+            if self._attr_available:
+                self._attr_available = False
+                self._attr_is_on = None
+                self.async_write_ha_state()
+        elif message == self._power_on:
+            # Zone came on — re-query so the toggle reflects the real state.
+            self.hass.async_create_task(self._client.send(f"P{self.zone}TE?"))
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         # Defeat on -> bypass the tone controls (TE0).
