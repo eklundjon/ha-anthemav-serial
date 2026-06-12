@@ -25,7 +25,8 @@ async def test_select_entities_created(hass, setup_integration):
     assert f"{MOCK_ID}_tuner_mode" in uids
     assert f"{MOCK_ID}_rec_source" in uids
     assert f"{MOCK_ID}_fp_brightness" in uids
-    assert {f"{MOCK_ID}_zone{z}_sleep" for z in (1, 2, 3)} <= uids
+    # Sleep timer is a remote command now, not a select.
+    assert f"{MOCK_ID}_zone1_sleep" not in uids
 
 
 # ── Tuner mode ───────────────────────────────────────────────────────────────────
@@ -81,23 +82,7 @@ async def test_record_source_reflects_push(hass, setup_integration):
     assert hass.states.get(_eid(hass, f"{MOCK_ID}_rec_source")).state == "DVD1"
 
 
-# ── Sleep timer ──────────────────────────────────────────────────────────────────
-
-async def test_sleep_timer_select_sends_command(hass, setup_integration):
-    _, mock_client = setup_integration
-    mock_client.send.reset_mock()
-    await _select(hass, _eid(hass, f"{MOCK_ID}_zone1_sleep"), "60 min")
-    mock_client.send.assert_called_once_with("P1Z2")
-
-
-async def test_sleep_timer_reflects_push(hass, setup_integration):
-    on_message = setup_integration[1]._on_message
-    on_message("P2Z1")  # 30 min
-    await hass.async_block_till_done()
-    assert hass.states.get(_eid(hass, f"{MOCK_ID}_zone2_sleep")).state == "30 min"
-
-
-# ── Front panel brightness ───────────────────────────────────────────────────────
+# ── Front panel brightness (write-only, RestoreEntity) ───────────────────────────
 
 async def test_brightness_select_sends_command(hass, setup_integration):
     _, mock_client = setup_integration

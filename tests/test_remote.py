@@ -184,3 +184,38 @@ async def test_bypass_enable_on_main_remote(hass, setup_integration):
         blocking=True,
     )
     assert [c.args[0] for c in mock_client.send.call_args_list] == ["P1TE0", "P1TE1"]
+
+
+# ── Sleep timer commands ─────────────────────────────────────────────────────────
+
+async def test_sleep_30_command_zone1(hass, setup_integration):
+    _, mock_client = setup_integration
+    mock_client.send.reset_mock()
+    await hass.services.async_call(
+        "remote", "send_command",
+        {"entity_id": remote_entity_id(hass, ZONE_MAIN), "command": ["sleep_30"]},
+        blocking=True,
+    )
+    mock_client.send.assert_called_once_with("P1Z1")  # 30 min
+
+
+async def test_sleep_off_command_zone2(hass, setup_integration):
+    _, mock_client = setup_integration
+    mock_client.send.reset_mock()
+    await hass.services.async_call(
+        "remote", "send_command",
+        {"entity_id": remote_entity_id(hass, ZONE_2), "command": ["sleep_off"]},
+        blocking=True,
+    )
+    mock_client.send.assert_called_once_with("P2Z0")
+
+
+async def test_sleep_90_command_zone3(hass, setup_integration):
+    _, mock_client = setup_integration
+    mock_client.send.reset_mock()
+    await hass.services.async_call(
+        "remote", "send_command",
+        {"entity_id": remote_entity_id(hass, ZONE_3), "command": ["sleep_90"]},
+        blocking=True,
+    )
+    mock_client.send.assert_called_once_with("P3Z3")  # 90 min

@@ -21,14 +21,9 @@ from .const import (
     REC_MAIN_KEY,
     REC_MAIN_LABEL,
     SELECTABLE_SOURCES,
-    SLEEP_TIMERS,
     TUNER_MODES,
-    ZONE_2,
-    ZONE_3,
-    ZONE_MAIN,
     cmd_fp_brightness,
     cmd_rec_source,
-    cmd_sleep_timer,
     cmd_tuner_mode,
     message_signal,
 )
@@ -36,8 +31,6 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 0
-
-_ZONE_NAMES: dict[int, str] = {ZONE_MAIN: "Main", ZONE_2: "Zone 2", ZONE_3: "Zone 3"}
 
 
 def _rec_source_labels(entry: ConfigEntry) -> dict[str, str]:
@@ -61,7 +54,6 @@ async def async_setup_entry(
         AnthemTunerModeSelect(client, entry),
         AnthemRecordSourceSelect(client, entry),
         AnthemBrightnessSelect(client, entry),
-        *[AnthemSleepTimerSelect(client, zone, entry) for zone in (ZONE_MAIN, ZONE_2, ZONE_3)],
     ]
     async_add_entities(entities)
 
@@ -161,40 +153,6 @@ class AnthemRecordSourceSelect(_AnthemSelectBase):
 
     async def async_select_option(self, option: str) -> None:
         await self._client.send(cmd_rec_source(self._by_label[option]))
-        self._attr_current_option = option
-        self.async_write_ha_state()
-
-
-class AnthemSleepTimerSelect(_AnthemSelectBase):
-    """Per-zone sleep timer (P{z}Z): Off / 30 / 60 / 90 min.
-
-    Not queryable, but the device pushes P{z}Z when it changes, so state tracks
-    those (and our own optimistic set).
-    """
-
-    _attr_icon = "mdi:timer"
-    _attr_entity_category = EntityCategory.CONFIG
-
-    def __init__(self, client: AnthemClient, zone: int, entry: ConfigEntry) -> None:
-        super().__init__(client, entry)
-        self.zone = zone
-        self._attr_name = f"{_ZONE_NAMES[zone]} sleep timer"
-        self._attr_unique_id = f"{entry.data[CONF_ID]}_zone{zone}_sleep"
-        self._attr_options = list(SLEEP_TIMERS.values())
-        self._by_label = {v: k for k, v in SLEEP_TIMERS.items()}
-        self._attr_current_option: str | None = None
-        self._re = re.compile(rf"^P{zone}Z([0-3])$")
-
-    @callback
-    def _handle_message(self, message: str) -> None:
-        if m := self._re.match(message):
-            option = SLEEP_TIMERS[m.group(1)]
-            if option != self._attr_current_option:
-                self._attr_current_option = option
-                self.async_write_ha_state()
-
-    async def async_select_option(self, option: str) -> None:
-        await self._client.send(cmd_sleep_timer(self.zone, self._by_label[option]))
         self._attr_current_option = option
         self.async_write_ha_state()
 

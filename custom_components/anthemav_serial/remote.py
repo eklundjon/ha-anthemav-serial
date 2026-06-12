@@ -21,10 +21,14 @@ from .const import (
     ZONE_MAIN,
     ZONE_2,
     ZONE_3,
+    cmd_sleep_timer,
     cmd_tone_controls,
     cmd_volume_down,
     cmd_volume_up,
 )
+
+# Sleep-timer remote commands -> P{z}Z key (0=Off, 1=30, 2=60, 3=90 min).
+_SLEEP_COMMANDS = {"sleep_off": "0", "sleep_30": "1", "sleep_60": "2", "sleep_90": "3"}
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -55,6 +59,7 @@ def _resolve_command(zone: int, cmd: str) -> str | None:
       power_on / power_off
       source_{key}              — e.g. source_0 (CD), source_5 (DVD1)
       bypass / enable           — tone controls: bypass (defeat) or enable
+      sleep_off / sleep_30 / sleep_60 / sleep_90  — sleep timer (minutes)
     """
     if cmd == "volume_up":
         return cmd_volume_up(zone)
@@ -64,6 +69,8 @@ def _resolve_command(zone: int, cmd: str) -> str | None:
         return cmd_tone_controls(zone, False)  # tone controls bypassed (defeat)
     if cmd == "enable":
         return cmd_tone_controls(zone, True)  # tone controls enabled (normal)
+    if cmd in _SLEEP_COMMANDS:
+        return cmd_sleep_timer(zone, _SLEEP_COMMANDS[cmd])
     if cmd == "mute_toggle":
         return f"P{zone}MT"
     if cmd == "source_seek_up":
@@ -118,7 +125,7 @@ class AnthemRemoteEntity(RemoteEntity):
                     "Remote zone %s: unknown command %r — valid commands: "
                     "volume_up, volume_down, mute_toggle, source_seek_up, "
                     "source_seek_down, power_on, power_off, bypass, enable, "
-                    "source_{key}",
+                    "sleep_off, sleep_30, sleep_60, sleep_90, source_{key}",
                     self.zone, cmd,
                 )
                 continue
