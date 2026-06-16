@@ -54,6 +54,7 @@ async def test_switch_entities_created(hass, setup_integration):
     assert f"{MOCK_ID}_zone3_tone" not in uids
     assert f"{MOCK_ID}_panel_lock" in uids
     assert f"{MOCK_ID}_auto_timers" in uids
+    assert f"{MOCK_ID}_hp_mute" in uids
 
 
 # ── Tone defeat (Main only; inverted: on = bypassed) ─────────────────────────────
@@ -177,6 +178,52 @@ async def test_auto_timers_reflects_push_and_command(hass, setup_integration):
         "switch", "turn_off", {"entity_id": _timers_id(hass)}, blocking=True
     )
     mock_client.send.assert_called_once_with("STE0")
+
+
+# ── Headphone mute ───────────────────────────────────────────────────────────────
+
+def _hp_mute_id(hass) -> str:
+    return _entity_id(hass, f"{MOCK_ID}_hp_mute")
+
+
+async def test_headphone_mute_queries_on_add(hass, setup_integration):
+    _, mock_client = setup_integration
+    sent = [c.args[0] for c in mock_client.send.call_args_list if c.args]
+    assert "H?" in sent
+
+
+async def test_headphone_mute_reflects_push(hass, setup_integration):
+    on_message = setup_integration[1]._on_message
+    on_message("HM1")
+    await hass.async_block_till_done()
+    assert hass.states.get(_hp_mute_id(hass)).state == "on"
+
+    on_message("HM0")
+    await hass.async_block_till_done()
+    assert hass.states.get(_hp_mute_id(hass)).state == "off"
+
+
+async def test_headphone_mute_reflects_combined_status(hass, setup_integration):
+    on_message = setup_integration[1]._on_message
+    on_message("HS7V-35.0M1")  # mute bit in the combined H? status
+    await hass.async_block_till_done()
+    assert hass.states.get(_hp_mute_id(hass)).state == "on"
+
+
+async def test_headphone_mute_turn_on_off(hass, setup_integration):
+    _, mock_client = setup_integration
+    mock_client.send.reset_mock()
+    await hass.services.async_call(
+        "switch", "turn_on", {"entity_id": _hp_mute_id(hass)}, blocking=True
+    )
+    mock_client.send.assert_called_once_with("HM1")
+    assert hass.states.get(_hp_mute_id(hass)).state == "on"
+
+    mock_client.send.reset_mock()
+    await hass.services.async_call(
+        "switch", "turn_off", {"entity_id": _hp_mute_id(hass)}, blocking=True
+    )
+    mock_client.send.assert_called_once_with("HM0")
 
 
 # ── Triggers (opt-in) ────────────────────────────────────────────────────────────
