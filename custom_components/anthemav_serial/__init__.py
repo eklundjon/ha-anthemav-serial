@@ -6,6 +6,7 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 import voluptuous as vol
 
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import ConfigEntryNotReady
 
 from .client import AnthemClient
 from .const import (
@@ -18,7 +19,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["media_player", "remote", "switch"]
+PLATFORMS = ["media_player", "remote", "switch", "select"]
 
 # AVM50 day encoding: 1=Sunday … 7=Saturday; Python weekday(): 0=Monday … 6=Sunday
 _PYTHON_TO_ANTHEM_DAY = [2, 3, 4, 5, 6, 7, 1]
@@ -55,7 +56,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         url=entry.data[CONF_URL],
         baudrate=entry.data[CONF_BAUDRATE],
     )
-    await client.start()
+    try:
+        await client.start()
+    except (OSError, TimeoutError) as err:
+        # A transient connect failure (e.g. the gateway briefly unreachable,
+        # "No route to host", or a connect timeout) should not permanently fail
+        # the entry. Raise ConfigEntryNotReady so HA retries with backoff
+        # instead of leaving the entry dead and its options flow stranded.
+        raise ConfigEntryNotReady(
+            f"Could not connect to {entry.data[CONF_URL]}: {err}"
+        ) from err
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = client
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))

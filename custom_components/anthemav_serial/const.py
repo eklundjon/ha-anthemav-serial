@@ -76,6 +76,33 @@ def cmd_trigger(num: int, on: bool) -> str:
 TRIGGER_HANDBACK = "StE1"
 
 
+# ── Select entities ────────────────────────────────────────────────────────────
+TUNER_MODES: dict[str, str] = {"0": "Stereo", "1": "Hi-blend", "2": "Mono"}
+SLEEP_TIMERS: dict[str, str] = {"0": "Off", "1": "30 min", "2": "60 min", "3": "90 min"}
+FP_BRIGHTNESS: dict[str, str] = {"0": "Off", "1": "Low", "2": "Medium", "3": "High"}
+
+# Record output ("zone 4") extra source: "M" = follow the main-zone source.
+REC_MAIN_KEY = "M"
+REC_MAIN_LABEL = "Main"
+
+
+def cmd_tuner_mode(key: str) -> str:
+    return f"TH{key}"
+
+
+def cmd_sleep_timer(zone: int, key: str) -> str:
+    return f"P{zone}Z{key}"
+
+
+def cmd_fp_brightness(key: str) -> str:
+    return f"FP{key}"
+
+
+def cmd_rec_source(key: str) -> str:
+    # P4S: set the record output source (key is a source char or "M" = Main).
+    return f"P4S{key}"
+
+
 def message_signal(entry_id: str) -> str:
     """Dispatcher signal carrying every raw device message for an entry.
 

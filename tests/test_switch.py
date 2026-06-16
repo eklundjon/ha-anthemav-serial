@@ -48,42 +48,83 @@ def _timers_id(hass) -> str:
 async def test_switch_entities_created(hass, setup_integration):
     reg = er.async_get(hass)
     uids = {e.unique_id for e in reg.entities.values() if e.domain == "switch"}
-    assert f"{MOCK_ID}_zone1_tone" in uids
-    assert f"{MOCK_ID}_zone2_tone" in uids
-    assert f"{MOCK_ID}_zone3_tone" in uids
+    assert f"{MOCK_ID}_zone1_tone" in uids  # Main tone switch
+    # Zones 2/3 tone are remote commands, not switches.
+    assert f"{MOCK_ID}_zone2_tone" not in uids
+    assert f"{MOCK_ID}_zone3_tone" not in uids
     assert f"{MOCK_ID}_panel_lock" in uids
     assert f"{MOCK_ID}_auto_timers" in uids
 
 
-# ── Tone controls ────────────────────────────────────────────────────────────────
+# ── Tone defeat (Main only; inverted: on = bypassed) ─────────────────────────────
 
-async def test_tone_control_reflects_push(hass, setup_integration):
+async def test_tone_defeat_reflects_push(hass, setup_integration):
     on_message = setup_integration[1]._on_message
-    on_message("P1TE1")  # enabled
+    on_message("P1TE0")  # bypassed -> defeat on
     await hass.async_block_till_done()
     assert hass.states.get(_tone_id(hass, ZONE_MAIN)).state == "on"
 
-    on_message("P1TE0")  # bypassed
+    on_message("P1TE1")  # enabled -> defeat off (normal)
     await hass.async_block_till_done()
     assert hass.states.get(_tone_id(hass, ZONE_MAIN)).state == "off"
 
 
-async def test_tone_control_queries_state_on_add(hass, setup_integration):
+async def test_tone_defeat_queries_state_on_add(hass, setup_integration):
     _, mock_client = setup_integration
     sent = [c.args[0] for c in mock_client.send.call_args_list]
     assert "P1TE?" in sent
 
 
-async def test_tone_control_turn_on_sends_command(hass, setup_integration):
+async def test_tone_defeat_turn_on_bypasses(hass, setup_integration):
     _, mock_client = setup_integration
+    on_message = mock_client._on_message
+    on_message("P1TE1")  # zone reports -> switch becomes available
     await hass.async_block_till_done()
     mock_client.send.reset_mock()
 
+    # Defeat on -> bypass the tone controls (TE0).
     await hass.services.async_call(
-        "switch", "turn_on", {"entity_id": _tone_id(hass, ZONE_2)}, blocking=True
+        "switch", "turn_on", {"entity_id": _tone_id(hass, ZONE_MAIN)}, blocking=True
     )
-    mock_client.send.assert_called_once_with("P2TE1")
-    assert hass.states.get(_tone_id(hass, ZONE_2)).state == "on"
+    mock_client.send.assert_called_once_with("P1TE0")
+    assert hass.states.get(_tone_id(hass, ZONE_MAIN)).state == "on"
+
+    mock_client.send.reset_mock()
+    # Defeat off -> normal operation (TE1).
+    await hass.services.async_call(
+        "switch", "turn_off", {"entity_id": _tone_id(hass, ZONE_MAIN)}, blocking=True
+    )
+    mock_client.send.assert_called_once_with("P1TE1")
+    assert hass.states.get(_tone_id(hass, ZONE_MAIN)).state == "off"
+
+
+async def test_tone_defeat_unavailable_until_reported(hass, setup_integration):
+    """No P1TE value yet -> unavailable (not a misleading unknown toggle)."""
+    state = hass.states.get(_tone_id(hass, ZONE_MAIN))
+    assert state.state == "unavailable"
+
+
+async def test_tone_defeat_unavailable_when_main_off(hass, setup_integration):
+    on_message = setup_integration[1]._on_message
+    on_message("P1TE0")  # available + on
+    await hass.async_block_till_done()
+    assert hass.states.get(_tone_id(hass, ZONE_MAIN)).state == "on"
+
+    on_message("Main Off")  # zone powers off
+    await hass.async_block_till_done()
+    assert hass.states.get(_tone_id(hass, ZONE_MAIN)).state == "unavailable"
+
+
+async def test_tone_defeat_requeries_on_power_on(hass, setup_integration):
+    _, mock_client = setup_integration
+    on_message = mock_client._on_message
+    on_message("Main Off")
+    await hass.async_block_till_done()
+    mock_client.send.reset_mock()
+
+    on_message("P1P1")  # main powers on -> re-query tone state
+    await hass.async_block_till_done()
+    assert "P1TE?" in [c.args[0] for c in mock_client.send.call_args_list if c.args]
 
 
 # ── Panel lock ───────────────────────────────────────────────────────────────────
@@ -195,3 +236,28 @@ async def test_trigger_not_reapplied_when_off(hass, mock_client):
     await hass.async_block_till_done()
     sent = [c.args[0] for c in mock_client.send.call_args_list if c.args]
     assert not any("t1T" in s or "t2T" in s or "t3T" in s for s in sent)
+
+
+# ── RestoreEntity (optimistic switches survive restart) ──────────────────────────
+
+async def test_panel_lock_restores_last_state(hass, config_entry, mock_client):
+    from homeassistant.core import State
+    from pytest_homeassistant_custom_component.common import mock_restore_cache
+
+    mock_restore_cache(hass, [State("switch.avm_50v_front_panel_lock", "on")])
+    with (
+        patch("custom_components.anthemav_serial.AnthemClient", return_value=mock_client),
+        patch("custom_components.anthemav_serial.media_player.asyncio.sleep", AsyncMock()),
+    ):
+        await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+    assert hass.states.get("switch.avm_50v_front_panel_lock").state == "on"
+
+
+async def test_trigger_restores_last_state(hass, mock_client):
+    from homeassistant.core import State
+    from pytest_homeassistant_custom_component.common import mock_restore_cache
+
+    mock_restore_cache(hass, [State("switch.avm_50v_trigger_1", "on")])
+    await _setup_with_options(hass, mock_client, {"trigger_control": True})
+    assert hass.states.get("switch.avm_50v_trigger_1").state == "on"

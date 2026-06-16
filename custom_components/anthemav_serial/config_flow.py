@@ -307,8 +307,9 @@ class AnthemSerialOptionsFlow(OptionsFlow):
                 # to their internal auto/condition control before reloading.
                 was_on = self.config_entry.options.get("trigger_control", False)
                 if was_on and not user_input.get("trigger_control", False):
-                    client = self.hass.data[DOMAIN][self.config_entry.entry_id]
-                    await client.send(TRIGGER_HANDBACK)
+                    client = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+                    if client is not None:
+                        await client.send(TRIGGER_HANDBACK)
                 return self.async_create_entry(data=user_input)
 
         # On a validation re-show, prefill from the rejected input so the user's
@@ -324,10 +325,16 @@ class AnthemSerialOptionsFlow(OptionsFlow):
         if "time_format_24hr" in prefill:
             time_format_24hr: bool = prefill["time_format_24hr"]
         else:
-            # Query the device for its current clock format setting.
-            client = self.hass.data[DOMAIN][self.config_entry.entry_id]
-            response = await client.query_one("STF?", "STF")
-            time_format_24hr = response == "STF1" if response is not None else False
+            # Query the device for its current clock format setting. The entry
+            # may not be set up (e.g. a transient connect failure left it
+            # retrying), in which case there's no client — fall back to the
+            # saved/default format rather than 500 the options form.
+            client = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+            if client is not None:
+                response = await client.query_one("STF?", "STF")
+                time_format_24hr = response == "STF1" if response is not None else False
+            else:
+                time_format_24hr = self.config_entry.options.get("time_format_24hr", False)
         vol_limits = {
             key: prefill.get(key, default)
             for key, default in [

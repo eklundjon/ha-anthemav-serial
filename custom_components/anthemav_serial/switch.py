@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .client import AnthemClient
 from .const import (
@@ -43,10 +44,11 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     client: AnthemClient = hass.data[DOMAIN][entry.entry_id]
-    entities: list[SwitchEntity] = [
-        AnthemToneControlSwitch(client, zone, entry)
-        for zone in (ZONE_MAIN, ZONE_2, ZONE_3)
-    ]
+    # Tone control is a switch on the Main zone only (it reliably reports
+    # P1TE). Zones 2/3 are usually off and don't report tone state, so a switch
+    # there would sit in a misleading "unknown"/optimistic state — those zones
+    # get fire-and-forget "bypass"/"enable" commands on their remote entities.
+    entities: list[SwitchEntity] = [AnthemToneDefeatSwitch(client, ZONE_MAIN, entry)]
     entities.append(AnthemPanelLockSwitch(client, entry))
     entities.append(AnthemAutoTimersSwitch(client, entry))
     # Triggers are opt-in (options flow): enabling them takes the unit's 12V
@@ -90,18 +92,29 @@ class _AnthemSwitchBase(SwitchEntity):
         """Update state from a raw device message (overridden by subclasses)."""
 
 
-class AnthemToneControlSwitch(_AnthemSwitchBase):
-    """Per-zone tone controls (P{z}TE): on = enabled, off = bypassed."""
+class AnthemToneDefeatSwitch(_AnthemSwitchBase):
+    """Main-zone tone defeat (P{z}TE). On = tone controls bypassed (defeated);
+    off = normal operation (enabled) — inverted from the device flag (TE1 =
+    enabled) so the switch is off in the default state.
+
+    A powered-off zone can't report its tone state (the P{z}TE? query comes back
+    as "Main Off"), so the switch is *unavailable* while the zone is off rather
+    than guessing, and a true toggle once the zone is on and reports.
+    """
 
     _attr_icon = "mdi:tune-vertical"
 
     def __init__(self, client: AnthemClient, zone: int, entry: ConfigEntry) -> None:
         super().__init__(client, entry)
         self.zone = zone
-        self._attr_name = f"{_ZONE_NAMES[zone]} tone controls"
+        self._attr_name = f"{_ZONE_NAMES[zone]} tone defeat"
         self._attr_unique_id = f"{entry.data[CONF_ID]}_zone{zone}_tone"
         self._attr_is_on: bool | None = None
+        self._attr_available = False  # until the zone reports its tone state
         self._re = re.compile(rf"^P{zone}TE([01])$")
+        zone_off = {ZONE_MAIN: "Main Off", ZONE_2: "Zone2 Off", ZONE_3: "Zone3 Off"}[zone]
+        self._power_off = frozenset({f"P{zone}P0", zone_off, "Unit Off"})
+        self._power_on = f"P{zone}P1"
 
     async def _request_state(self) -> None:
         await self._client.send(f"P{self.zone}TE?")
@@ -109,25 +122,37 @@ class AnthemToneControlSwitch(_AnthemSwitchBase):
     @callback
     def _handle_message(self, message: str) -> None:
         if m := self._re.match(message):
-            is_on = m.group(1) == "1"
-            if is_on != self._attr_is_on:
-                self._attr_is_on = is_on
+            defeated = m.group(1) == "0"  # TE0 = bypassed = defeat on
+            if defeated != self._attr_is_on or not self._attr_available:
+                self._attr_is_on = defeated
+                self._attr_available = True
                 self.async_write_ha_state()
+        elif message in self._power_off:
+            if self._attr_available:
+                self._attr_available = False
+                self._attr_is_on = None
+                self.async_write_ha_state()
+        elif message == self._power_on:
+            # Zone came on — re-query so the toggle reflects the real state.
+            self.hass.async_create_task(self._client.send(f"P{self.zone}TE?"))
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self._client.send(cmd_tone_controls(self.zone, True))
+        # Defeat on -> bypass the tone controls (TE0).
+        await self._client.send(cmd_tone_controls(self.zone, False))
         self._attr_is_on = True
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self._client.send(cmd_tone_controls(self.zone, False))
+        # Defeat off -> normal operation, tone controls enabled (TE1).
+        await self._client.send(cmd_tone_controls(self.zone, True))
         self._attr_is_on = False
         self.async_write_ha_state()
 
 
-class AnthemPanelLockSwitch(_AnthemSwitchBase):
+class AnthemPanelLockSwitch(_AnthemSwitchBase, RestoreEntity):
     """Front-panel lockout (FPL). Write-only, but reliably state-trackable: it
     only clears via our command or a unit/main power-off — and we observe those.
+    The last state is restored across restarts; a power-off still forces it off.
     """
 
     _attr_icon = "mdi:lock"
@@ -139,8 +164,13 @@ class AnthemPanelLockSwitch(_AnthemSwitchBase):
         super().__init__(client, entry)
         self._attr_name = "Front panel lock"
         self._attr_unique_id = f"{entry.data[CONF_ID]}_panel_lock"
-        # Unknown at cold start (no query); default off, then tracked.
+        # No query; default off, restored from last state, then tracked.
         self._attr_is_on = False
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if (last := await self.async_get_last_state()) is not None and last.state in ("on", "off"):
+            self._attr_is_on = last.state == "on"
 
     @callback
     def _handle_message(self, message: str) -> None:
@@ -193,10 +223,11 @@ class AnthemAutoTimersSwitch(_AnthemSwitchBase):
         self.async_write_ha_state()
 
 
-class AnthemTriggerSwitch(_AnthemSwitchBase):
+class AnthemTriggerSwitch(_AnthemSwitchBase, RestoreEntity):
     """A 12V trigger output (t{n}T). Write-only (assumed state). Each write
     asserts RS-232 trigger mode (StE2); on main power-on the held state is
-    re-applied, since the outputs come up off after a power cycle.
+    re-applied, since the outputs come up off after a power cycle. The last
+    state is restored across restarts (HA is the source of truth).
     """
 
     _attr_icon = "mdi:flash"
@@ -209,6 +240,11 @@ class AnthemTriggerSwitch(_AnthemSwitchBase):
         self._attr_name = f"Trigger {num}"
         self._attr_unique_id = f"{entry.data[CONF_ID]}_trigger{num}"
         self._attr_is_on = False  # optimistic; HA is the source of truth
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if (last := await self.async_get_last_state()) is not None and last.state in ("on", "off"):
+            self._attr_is_on = last.state == "on"
 
     @callback
     def _handle_message(self, message: str) -> None:
