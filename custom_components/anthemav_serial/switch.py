@@ -23,6 +23,7 @@ from .const import (
     ZONE_3,
     ZONE_MAIN,
     cmd_auto_timers,
+    cmd_hp_mute,
     cmd_panel_lock,
     cmd_tone_controls,
     cmd_trigger,
@@ -51,6 +52,7 @@ async def async_setup_entry(
     entities: list[SwitchEntity] = [AnthemToneDefeatSwitch(client, ZONE_MAIN, entry)]
     entities.append(AnthemPanelLockSwitch(client, entry))
     entities.append(AnthemAutoTimersSwitch(client, entry))
+    entities.append(AnthemHeadphoneMuteSwitch(client, entry))
     # Triggers are opt-in (options flow): enabling them takes the unit's 12V
     # triggers under RS-232 control, detaching them from their auto conditions.
     if entry.options.get(CONF_TRIGGER_CONTROL, False):
@@ -219,6 +221,44 @@ class AnthemAutoTimersSwitch(_AnthemSwitchBase):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self._client.send(cmd_auto_timers(False))
+        self._attr_is_on = False
+        self.async_write_ha_state()
+
+
+class AnthemHeadphoneMuteSwitch(_AnthemSwitchBase):
+    """Headphone mute (HM). Independent of zone power, queried via H?; state
+    also rides along in the combined HSuVvMw status.
+    """
+
+    _attr_icon = "mdi:headphones-off"
+    _attr_entity_category = None  # a primary control, not config
+
+    def __init__(self, client: AnthemClient, entry: ConfigEntry) -> None:
+        super().__init__(client, entry)
+        self._attr_name = "Headphone mute"
+        self._attr_unique_id = f"{entry.data[CONF_ID]}_hp_mute"
+        self._attr_is_on: bool | None = None
+        self._re = re.compile(r"^HM([01])$")
+        self._re_combined = re.compile(r"^HS[0-9c-j]V[+-]\d+\.\d+M([01])$")
+
+    async def _request_state(self) -> None:
+        await self._client.send("H?")
+
+    @callback
+    def _handle_message(self, message: str) -> None:
+        if m := (self._re.match(message) or self._re_combined.match(message)):
+            is_on = m.group(1) == "1"
+            if is_on != self._attr_is_on:
+                self._attr_is_on = is_on
+                self.async_write_ha_state()
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self._client.send(cmd_hp_mute(True))
+        self._attr_is_on = True
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self._client.send(cmd_hp_mute(False))
         self._attr_is_on = False
         self.async_write_ha_state()
 

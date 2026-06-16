@@ -103,6 +103,38 @@ def cmd_rec_source(key: str) -> str:
     return f"P4S{key}"
 
 
+# ── Headphone output (independent of zone power) ─────────────────────────────────
+# Ranges/steps per the HV/HL/HT/HB command docs. The device echoes one decimal
+# with an explicit sign (e.g. HV-35.0, HL+0.0), confirmed against the AVM50.
+HP_VOLUME_MIN, HP_VOLUME_MAX, HP_VOLUME_STEP = -62.5, 10.0, 1.25
+HP_BALANCE_MIN, HP_BALANCE_MAX, HP_BALANCE_STEP = -12.5, 12.5, 1.25
+HP_TONE_MIN, HP_TONE_MAX, HP_TONE_STEP = -14.0, 14.0, 2.0  # treble and bass
+
+
+def _round_step(db: float, step: float) -> float:
+    return round(db / step) * step
+
+
+def cmd_hp_volume(db: float) -> str:
+    return f"HV{_round_step(db, HP_VOLUME_STEP):+.2f}"
+
+
+def cmd_hp_balance(db: float) -> str:
+    return f"HL{_round_step(db, HP_BALANCE_STEP):+.2f}"
+
+
+def cmd_hp_treble(db: float) -> str:
+    return f"HT{_round_step(db, HP_TONE_STEP):+.2f}"
+
+
+def cmd_hp_bass(db: float) -> str:
+    return f"HB{_round_step(db, HP_TONE_STEP):+.2f}"
+
+
+def cmd_hp_mute(mute: bool) -> str:
+    return f"HM{1 if mute else 0}"
+
+
 def message_signal(entry_id: str) -> str:
     """Dispatcher signal carrying every raw device message for an entry.
 

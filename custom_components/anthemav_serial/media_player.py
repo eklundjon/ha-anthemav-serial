@@ -110,7 +110,9 @@ class MessageRouter:
                 self._tuner.notify_zone_source(zone, entity.source_id)
                 return
         if message.startswith("H"):
-            _LOGGER.debug("Headphone message (entity disabled): %r", message)
+            # Headphone messages are handled by the number/switch platforms via
+            # the dispatcher broadcast above; nothing for the media_player to do.
+            _LOGGER.debug("Headphone message: %r", message)
             return
         if message.startswith("TAT") or message.startswith("TFT") or message.startswith("TH"):
             self._tuner.handle_message(message)

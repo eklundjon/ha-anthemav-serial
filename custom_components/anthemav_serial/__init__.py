@@ -19,7 +19,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["media_player", "remote", "switch", "select"]
+PLATFORMS = ["media_player", "remote", "switch", "select", "number"]
 
 # AVM50 day encoding: 1=Sunday … 7=Saturday; Python weekday(): 0=Monday … 6=Sunday
 _PYTHON_TO_ANTHEM_DAY = [2, 3, 4, 5, 6, 7, 1]
