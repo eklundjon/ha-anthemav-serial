@@ -350,6 +350,15 @@ async def test_options_flow_falls_back_to_12hr_on_query_timeout(
     assert config_entry.options["time_format_24hr"] is False
 
 
+async def test_options_flow_opens_when_entry_not_set_up(hass, config_entry):
+    """A failed/retrying setup leaves no client in hass.data; the options flow
+    must still render its form instead of 500-ing with a KeyError."""
+    # config_entry is added to hass but never set up, so hass.data[DOMAIN] is
+    # absent — exactly the state after a transient connect failure.
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    assert result["type"] == FlowResultType.FORM
+
+
 async def test_options_flow_uses_stored_time_format_without_querying(
     hass, mock_client
 ):
