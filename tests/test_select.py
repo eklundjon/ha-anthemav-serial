@@ -63,6 +63,8 @@ async def test_record_source_queries_on_add(hass, setup_integration):
 
 async def test_record_source_main_option(hass, setup_integration):
     _, mock_client = setup_integration
+    mock_client._on_message("P4S1")  # device reports -> entity becomes available
+    await hass.async_block_till_done()
     mock_client.send.reset_mock()
     await _select(hass, _eid(hass, f"{MOCK_ID}_rec_source"), "Main")
     mock_client.send.assert_called_once_with("P4SM")
@@ -70,6 +72,8 @@ async def test_record_source_main_option(hass, setup_integration):
 
 async def test_record_source_input_option(hass, setup_integration):
     _, mock_client = setup_integration
+    mock_client._on_message("P4S1")  # device reports -> entity becomes available
+    await hass.async_block_till_done()
     mock_client.send.reset_mock()
     await _select(hass, _eid(hass, f"{MOCK_ID}_rec_source"), "CD")  # source 0
     mock_client.send.assert_called_once_with("P4S0")
@@ -80,6 +84,29 @@ async def test_record_source_reflects_push(hass, setup_integration):
     on_message("P4S5")  # DVD1
     await hass.async_block_till_done()
     assert hass.states.get(_eid(hass, f"{MOCK_ID}_rec_source")).state == "DVD1"
+
+
+async def test_record_source_unavailable_when_main_off(hass, setup_integration):
+    """P4S? answers "Main Off" while main is off, so the select is unavailable."""
+    on_message = setup_integration[1]._on_message
+    on_message("P4S0")  # CD -> available first
+    await hass.async_block_till_done()
+    assert hass.states.get(_eid(hass, f"{MOCK_ID}_rec_source")).state == "CD"
+
+    on_message("Main Off")  # main powers off
+    await hass.async_block_till_done()
+    assert hass.states.get(_eid(hass, f"{MOCK_ID}_rec_source")).state == "unavailable"
+
+
+async def test_record_source_requeries_on_power_on(hass, setup_integration):
+    _, mock_client = setup_integration
+    mock_client._on_message("Main Off")
+    await hass.async_block_till_done()
+    mock_client.send.reset_mock()
+
+    mock_client._on_message("P1P1")  # main powers on -> re-query record source
+    await hass.async_block_till_done()
+    assert "P4S?" in [c.args[0] for c in mock_client.send.call_args_list if c.args]
 
 
 # ── Front panel brightness (write-only, RestoreEntity) ───────────────────────────

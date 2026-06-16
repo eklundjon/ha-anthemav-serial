@@ -125,9 +125,18 @@ class AnthemTunerModeSelect(_AnthemSelectBase):
 
 
 class AnthemRecordSourceSelect(_AnthemSelectBase):
-    """Record output source (P4S): the inputs plus "Main" (follow main zone)."""
+    """Record output source (P4S): the inputs plus "Main" (follow main zone).
+
+    The device only reports the record source while the main zone is on: P4S?
+    answers "Main Off" otherwise (confirmed against the device). So the select
+    is unavailable while main is off and re-queries when main powers on, rather
+    than sitting at a stale or perpetually-unknown value.
+    """
 
     _attr_icon = "mdi:record-rec"
+
+    # Main-zone power-off — also how P4S? replies while main is off.
+    _POWER_OFF = frozenset({"P1P0", "Main Off", "Unit Off"})
 
     def __init__(self, client: AnthemClient, entry: ConfigEntry) -> None:
         super().__init__(client, entry)
@@ -137,6 +146,7 @@ class AnthemRecordSourceSelect(_AnthemSelectBase):
         self._attr_options = list(self._labels.values())
         self._by_label = {v: k for k, v in self._labels.items()}
         self._attr_current_option: str | None = None
+        self._attr_available = False  # until the device reports a source
         # P4Sx, or simulcast P4X{audio}{video} (responses are audio-first).
         self._re_s = re.compile(r"^P4S([0-9c-jM])$")
         self._re_x = re.compile(r"^P4X([0-9c-j])[0-9c-j]$")
@@ -146,11 +156,21 @@ class AnthemRecordSourceSelect(_AnthemSelectBase):
 
     @callback
     def _handle_message(self, message: str) -> None:
-        m = self._re_s.match(message) or self._re_x.match(message)
-        if m and (option := self._labels.get(m.group(1))) != self._attr_current_option:
-            if option is not None:
+        if m := (self._re_s.match(message) or self._re_x.match(message)):
+            option = self._labels.get(m.group(1))
+            if option is not None and (
+                option != self._attr_current_option or not self._attr_available
+            ):
                 self._attr_current_option = option
+                self._attr_available = True
                 self.async_write_ha_state()
+        elif message in self._POWER_OFF:
+            if self._attr_available:
+                self._attr_available = False
+                self.async_write_ha_state()
+        elif message == "P1P1":
+            # Main came on — re-query so the record source repopulates.
+            self.hass.async_create_task(self._client.send("P4S?"))
 
     async def async_select_option(self, option: str) -> None:
         await self._client.send(cmd_rec_source(self._by_label[option]))
