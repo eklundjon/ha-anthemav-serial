@@ -151,6 +151,47 @@ async def test_turn_off_sends_power_off(hass, setup_integration):
     mock_client.send.assert_called_once_with("P1P0")
 
 
+# ── Power state tracking (toggle reflects real zone power) ───────────────────────
+
+async def test_remote_queries_power_on_add(hass, setup_integration):
+    _, mock_client = setup_integration
+    sent = [c.args[0] for c in mock_client.send.call_args_list if c.args]
+    assert "P1P?" in sent
+
+
+async def test_remote_reflects_power_push(hass, setup_integration):
+    _, mock_client = setup_integration
+    mock_client._on_message("P1P1")
+    await hass.async_block_till_done()
+    assert hass.states.get(remote_entity_id(hass, ZONE_MAIN)).state == "on"
+
+    mock_client._on_message("P1P0")
+    await hass.async_block_till_done()
+    assert hass.states.get(remote_entity_id(hass, ZONE_MAIN)).state == "off"
+
+
+async def test_remote_reflects_zone_off_text(hass, setup_integration):
+    _, mock_client = setup_integration
+    mock_client._on_message("P1P1")
+    await hass.async_block_till_done()
+    assert hass.states.get(remote_entity_id(hass, ZONE_MAIN)).state == "on"
+
+    mock_client._on_message("Main Off")  # device's zone-off text, not P1P0
+    await hass.async_block_till_done()
+    assert hass.states.get(remote_entity_id(hass, ZONE_MAIN)).state == "off"
+
+
+async def test_remote_reflects_unit_off(hass, setup_integration):
+    _, mock_client = setup_integration
+    mock_client._on_message("P2P1")
+    await hass.async_block_till_done()
+    assert hass.states.get(remote_entity_id(hass, ZONE_2)).state == "on"
+
+    mock_client._on_message("Unit Off")  # whole unit off -> every zone off
+    await hass.async_block_till_done()
+    assert hass.states.get(remote_entity_id(hass, ZONE_2)).state == "off"
+
+
 # ── Tone controls (bypass / enable) ──────────────────────────────────────────────
 
 async def test_bypass_command_zone2(hass, setup_integration):
