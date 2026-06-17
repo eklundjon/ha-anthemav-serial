@@ -127,6 +127,8 @@ class AnthemRecordSourceSelect(_AnthemSelectBase):
     """
 
     _attr_icon = "mdi:record-rec"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_registry_enabled_default = False  # niche (record/tape routing)
 
     # Main-zone power-off — also how P4S? replies while main is off.
     _POWER_OFF = frozenset({"P1P0", "Main Off", "Unit Off"})

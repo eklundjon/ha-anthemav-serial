@@ -96,9 +96,13 @@ class AnthemRemoteEntity(RemoteEntity):
     zone-off and unit-off text) rather than being a hardcoded "on", so it stays
     in sync with the media_player. The remote itself is not marked unavailable
     when the zone is off — commands (e.g. power_on) are still valid then.
+
+    Disabled by default: it duplicates the media_player's power toggle on the
+    zone device, so it's opt-in for custom-card / send_command use.
     """
 
     _attr_has_entity_name = True
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, client: AnthemClient, zone: int, entry: ConfigEntry) -> None:
         self._client = client

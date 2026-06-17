@@ -287,7 +287,9 @@ async def test_trigger_not_reapplied_when_off(hass, mock_client):
 
 # ── RestoreEntity (optimistic switches survive restart) ──────────────────────────
 
-async def test_panel_lock_restores_last_state(hass, config_entry, mock_client):
+async def test_panel_lock_restores_last_state(
+    hass, config_entry, mock_client, _enable_default_disabled
+):
     from homeassistant.core import State
     from pytest_homeassistant_custom_component.common import mock_restore_cache
 

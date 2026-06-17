@@ -49,3 +49,30 @@ async def test_entities_land_on_the_right_device(hass, setup_integration):
         assert device.identifiers == {(DOMAIN, expected_ident)}, (
             f"{unique_id} on {device.identifiers}, expected {expected_ident}"
         )
+
+
+async def test_default_disabled_entities(hass, config_entry, mock_client):
+    """Niche/redundant entities ship disabled-by-default; primary ones don't.
+
+    Sets up directly (not via setup_integration, which force-enables them) so
+    the real registry disabled_by flags are observed.
+    """
+    from unittest.mock import AsyncMock, patch
+
+    with (
+        patch("custom_components.anthemav_serial.AnthemClient", return_value=mock_client),
+        patch("custom_components.anthemav_serial.media_player.asyncio.sleep", AsyncMock()),
+    ):
+        await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    by_uid = {e.unique_id: e for e in er.async_get(hass).entities.values()}
+
+    for uid in (
+        f"{MOCK_ID}_zone1_remote", f"{MOCK_ID}_zone2_remote", f"{MOCK_ID}_zone3_remote",
+        f"{MOCK_ID}_panel_lock", f"{MOCK_ID}_auto_timers", f"{MOCK_ID}_rec_source",
+    ):
+        assert by_uid[uid].disabled_by is not None, f"{uid} should be disabled by default"
+
+    for uid in (f"{MOCK_ID}_zone1", f"{MOCK_ID}_fp_brightness", f"{MOCK_ID}_hp_volume"):
+        assert by_uid[uid].disabled_by is None, f"{uid} should be enabled by default"
