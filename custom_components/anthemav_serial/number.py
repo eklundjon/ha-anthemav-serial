@@ -166,7 +166,7 @@ class AnthemHeadphoneNumber(NumberEntity):
                 self.hass, message_signal(self._entry_id), self._handle_message
             )
         )
-        self.hass.async_create_task(self._client.send(f"H{self._letter}?"))
+        self._client.request_query(f"H{self._letter}?")
 
     @callback
     def _handle_message(self, message: str) -> None:
@@ -235,7 +235,7 @@ class AnthemZoneTrimNumber(NumberEntity):
                 self.hass, message_signal(self._entry_id), self._handle_message
             )
         )
-        self.hass.async_create_task(self._client.send(f"{self._prefix}?"))
+        self._client.request_query(f"{self._prefix}?")
 
     @callback
     def _handle_message(self, message: str) -> None:
@@ -251,7 +251,7 @@ class AnthemZoneTrimNumber(NumberEntity):
                 self.async_write_ha_state()
         elif message == self._power_on:
             # Zone came on — re-query so the trim repopulates.
-            self.hass.async_create_task(self._client.send(f"{self._prefix}?"))
+            self._client.request_query(f"{self._prefix}?")
 
     async def async_set_native_value(self, value: float) -> None:
         await self._client.send(cmd_trim(self._prefix, value, self._step))
