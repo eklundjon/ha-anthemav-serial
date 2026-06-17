@@ -13,15 +13,12 @@ from homeassistant.components.media_player import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .client import AnthemClient
 from .const import (
     CONF_ID,
-    CONF_MODEL,
-    CONF_SW_VERSION,
     DOMAIN,
     NON_QUERYABLE_SUFFIXES,
     SELECTABLE_SOURCES,
@@ -44,6 +41,7 @@ from .const import (
     cmd_volume_up,
     message_signal,
 )
+from .device import tuner_device_info, zone_device_info
 
 # Sound-mode names that map to a settable mode (Main zone). Used to decide
 # whether the live audio_fx value belongs in the curated sound_mode_list.
@@ -52,14 +50,6 @@ _SOUND_MODE_VALUES = frozenset(SOUND_MODES.values())
 _LOGGER = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 0
-
-# Zone 1 gets name=None so its entity name IS the device name.
-# Zone 2 gets a suffix so it appears as "<device> Zone 2".
-ZONE_NAMES: dict[int, str] = {
-    ZONE_MAIN: "Main",
-    ZONE_2: "Zone 2",
-    ZONE_3: "Zone 3",
-}
 
 
 def _effective_sources(entry: ConfigEntry) -> dict[str, str]:
@@ -189,15 +179,9 @@ class AnthemZoneEntity(MediaPlayerEntity):
         self._client = client
         self.zone = zone
         device_id = entry.data[CONF_ID]
-        self._attr_name = ZONE_NAMES[zone]
+        self._attr_name = None  # the zone IS its sub-device
         self._attr_unique_id = f"{device_id}_zone{zone}"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, device_id)},
-            name=entry.title,
-            manufacturer="Anthem",
-            model=entry.data.get(CONF_MODEL),
-            sw_version=entry.data.get(CONF_SW_VERSION),
-        )
+        self._attr_device_info = zone_device_info(entry, zone)
         self._vol_min: float = entry.options.get(f"zone{zone}_vol_min", VOLUME_MIN)
         self._vol_max: float = entry.options.get(f"zone{zone}_vol_max", VOLUME_MAX)
 
@@ -453,7 +437,7 @@ class AnthemTunerEntity(MediaPlayerEntity):
     """Built-in tuner — on when any zone has tuner selected as source."""
 
     _attr_has_entity_name = True
-    _attr_name = "Tuner"
+    _attr_name = None  # the tuner IS its sub-device
     _attr_supported_features = (
         MediaPlayerEntityFeature.NEXT_TRACK
         | MediaPlayerEntityFeature.PREVIOUS_TRACK
@@ -464,13 +448,7 @@ class AnthemTunerEntity(MediaPlayerEntity):
         self._client = client
         device_id = entry.data[CONF_ID]
         self._attr_unique_id = f"{device_id}_tuner"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, device_id)},
-            name=entry.title,
-            manufacturer="Anthem",
-            model=entry.data.get(CONF_MODEL),
-            sw_version=entry.data.get(CONF_SW_VERSION),
-        )
+        self._attr_device_info = tuner_device_info(entry)
         self._attr_available = False
         self._frequency: str | None = None
         self._tuner_mode: str | None = None

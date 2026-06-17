@@ -8,15 +8,12 @@ from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .client import AnthemClient
 from .const import (
     CONF_ID,
-    CONF_MODEL,
-    CONF_SW_VERSION,
     DOMAIN,
     HP_BALANCE_MAX,
     HP_BALANCE_MIN,
@@ -33,6 +30,7 @@ from .const import (
     cmd_hp_volume,
     message_signal,
 )
+from .device import headphone_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,20 +49,20 @@ async def async_setup_entry(
     async_add_entities(
         [
             AnthemHeadphoneNumber(
-                client, entry, "Headphone volume", "hp_volume", "V",
+                client, entry, "Volume", "hp_volume", "V",
                 HP_VOLUME_MIN, HP_VOLUME_MAX, HP_VOLUME_STEP, cmd_hp_volume,
                 category=None, combined=True,
             ),
             AnthemHeadphoneNumber(
-                client, entry, "Headphone bass", "hp_bass", "B",
+                client, entry, "Bass", "hp_bass", "B",
                 HP_TONE_MIN, HP_TONE_MAX, HP_TONE_STEP, cmd_hp_bass,
             ),
             AnthemHeadphoneNumber(
-                client, entry, "Headphone treble", "hp_treble", "T",
+                client, entry, "Treble", "hp_treble", "T",
                 HP_TONE_MIN, HP_TONE_MAX, HP_TONE_STEP, cmd_hp_treble,
             ),
             AnthemHeadphoneNumber(
-                client, entry, "Headphone balance", "hp_balance", "L",
+                client, entry, "Balance", "hp_balance", "L",
                 HP_BALANCE_MIN, HP_BALANCE_MAX, HP_BALANCE_STEP, cmd_hp_balance,
             ),
         ]
@@ -113,13 +111,7 @@ class AnthemHeadphoneNumber(NumberEntity):
         self._attr_entity_category = category
         self._attr_native_value: float | None = None
         self._re = re.compile(rf"^H{letter}([+-]\d+\.\d+)$")
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, entry.data[CONF_ID])},
-            name=entry.title,
-            manufacturer="Anthem",
-            model=entry.data.get(CONF_MODEL),
-            sw_version=entry.data.get(CONF_SW_VERSION),
-        )
+        self._attr_device_info = headphone_device_info(entry)
 
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(
