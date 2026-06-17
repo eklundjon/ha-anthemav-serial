@@ -240,6 +240,32 @@ async def test_supervise_reconnects_and_fires_restored():
     assert restored == [True]
 
 
+async def test_supervise_propagates_cancellation():
+    """HA cancels the background task on shutdown without setting _running=False.
+    The read loop must not swallow the cancellation — doing so left _supervise
+    reconnecting forever, an unkillable task that segfaulted at teardown.
+    """
+    reader, writer = _make_stream()
+    blocked = asyncio.Event()
+
+    async def _block():
+        blocked.set()
+        await asyncio.sleep(3600)  # park inside readline until cancelled
+
+    reader.readline = _block
+    client = await _connected_client(reader, writer)
+    client._running = True
+    client._reconnect = AsyncMock()  # would run if the cancel were swallowed
+
+    task = asyncio.create_task(client._supervise())
+    await asyncio.wait_for(blocked.wait(), timeout=1)  # we're now inside readline
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=1)
+    client._reconnect.assert_not_called()
+
+
 # ── stop ───────────────────────────────────────────────────────────────────────
 
 async def test_stop_closes_writer():

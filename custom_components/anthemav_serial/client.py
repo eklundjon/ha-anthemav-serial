@@ -191,7 +191,12 @@ class AnthemClient:
                             fut.set_result(message)
                     self._on_message(message)
             except asyncio.CancelledError:
-                break
+                # Propagate so the supervisor task actually dies when cancelled
+                # (e.g. on HA shutdown, which cancels the task without setting
+                # _running=False). Swallowing it left _supervise reconnecting
+                # forever — an unkillable task that segfaulted at interpreter
+                # teardown while still holding the socket transport.
+                raise
             except Exception as err:
                 _LOGGER.error("Error reading from %s: %s", self.url, err)
                 break
