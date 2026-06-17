@@ -34,7 +34,8 @@ push, because a push was never confirmed for them — so "Push: ?" below means
   integration staggers and batches per-zone queries. (Doc + Impl)
 - **Zone-off text** (notes 4–7): a command/query to a powered-off path returns
   `Main Off` / `Zone2 Off` / `Zone3 Off` (Rec → `Main Off`), or `Unit Off` when
-  no zone is on — *instead of* the normal reply. (Exp: `P1TE?`, `P4S?`)
+  no zone is on — *instead of* the normal reply. (Exp: `P1TE?`, `P4S?`,
+  `P{z}B?/T?/L?` trims)
 - **Terminators:** commands end in `<lf>` (0x0a) or `;`. Replies end in `<lf>`. (Impl)
 - **Errors:** `Invalid Command`, `Parameter Out-of-range`; out-of-range *levels*
   clamp silently to min/max (note 1). (Exp: `FP?` → `Parameter Out-of-range`)
@@ -83,9 +84,9 @@ push, because a push was never confirmed for them — so "Push: ?" below means
 | `P1E…` / `P1E?` (+ EF/EE/ES/EU/ET/EW/EX/EY/ED/EB/EC/EM*/ER/EN) | Surround / processing mode per signal type | **Yes** | No | (on source change) | **Impl** (set `P1E{src}{mode}` — Exp; read as attrs) |
 | `P1C` / `P1C?` | Dynamic-range compression | **Yes** | No | ? | Impl (read as attr) |
 | `P1VF/VC/VR/VB/VS/VL` + `?` | Per-channel trims (front/ctr/surr/back/sub/LFE, ±10/sub +20−30) | **Yes** | No | ? | **Exp** (read live as attrs) |
-| `P1BM/BF/BC/BR/BB` + `?` | Bass: master + per-channel (±12) | **Yes** | No | ? | Doc/attr |
-| `P1TM/TF/TC/TR/TB` + `?` | Treble: master + per-channel (±12) | **Yes** | No | ? | Doc/attr |
-| `P1LM/LF/LR/LB` + `?` | Balance: master + per-channel (±10) | **Yes** | No | ? | Doc/attr |
+| `P1BM` (+ `BF/BC/BR/BB`) | Bass: master + per-channel (±12 / 0.5) | **Yes** | No | ? | **Impl/Exp** master (`P1BM+12.0`); per-channel Doc |
+| `P1TM` (+ `TF/TC/TR/TB`) | Treble: master + per-channel (±12 / 0.5) | **Yes** | No | ? | **Impl/Exp** master; per-channel Doc |
+| `P1LM` (+ `LF/LR/LB`) | Balance: master + per-channel (±10 / 0.5) | **Yes** | No | ? | **Impl/Exp** master; per-channel Doc |
 | `P1D?/P1DF?/P1DS?/P1A?/P1AD?` | Decoder / signal / AC3 status (read-only) | **Yes** | (read-only) | (on signal change) | Impl (attrs) |
 | `P1Q?` | Processing-mode text (LCD lower line) | **Yes** | (read-only) | ? | Impl (attr) |
 | `P1Z` | Sleep timer (Off/30/60/90) | **No** | **Yes** | No | **Exp** (set works; no query) |
@@ -109,9 +110,9 @@ push, because a push was never confirmed for them — so "Push: ?" below means
 | `P{z}S` / `P{z}S?` (`P{z}X`) | Source (`M`=follow main) | **Yes** | No | **Yes** | **Impl/Exp** |
 | `P{z}V` / `P{z}V?` (`U/D`) | Volume (MaxVol…−62.5 dB / 1.25) | **Yes** | No | **Yes** | **Impl/Exp** |
 | `P{z}M` / `P{z}MT` | Mute / toggle (state in `P{z}?`) | via `P{z}?` | No | **Yes** | **Impl/Exp** |
-| `P{z}L` / `P{z}L?` | Balance (±12.5 / 1.25) | **Yes** | No | ? | Doc |
-| `P{z}T` / `P{z}T?` | Treble (±14 / 2.0) | **Yes** | No | ? | Doc |
-| `P{z}B` / `P{z}B?` | Bass (±14 / 2.0) | **Yes** | No | ? | Doc |
+| `P{z}L` / `P{z}L?` | Balance (±12.5 / 1.25) | **Yes** | No | ? | **Impl/Exp** |
+| `P{z}T` / `P{z}T?` | Treble (±14 / 2.0) | **Yes** | No | ? | **Impl/Exp** |
+| `P{z}B` / `P{z}B?` | Bass (±14 / 2.0) | **Yes** | No | ? | **Impl/Exp** |
 | `P{z}TE` / `P{z}TE?` | Tone controls | **Yes** | No | ? | **Impl** (exposed as remote bypass/enable cmd) |
 | `P{z}SS` | Source seek | — | — | — | **Impl** (remote cmd) |
 | `P{z}Z` | Sleep timer | **No** | **Yes** | No | Impl (remote cmd) |
@@ -208,13 +209,13 @@ relevant power-on, rather than assuming a push.
 
 | Sub-device | Implemented today | Notable still-available |
 |---|---|---|
-| Main | power, source, volume, mute, seek, tone defeat, sound-mode, sleep (remote), read-only decoder/effect attrs | **per-channel + master bass/treble/balance trims** (queryable), compression as a control |
-| Zone 2/3 | power, source, volume, mute, seek, tone (remote), sleep (remote) | bass/treble/balance as entities (queryable) |
+| Main | power, source, volume, mute, seek, tone defeat, **master bass/treble/balance**, sound-mode, sleep (remote), read-only decoder/effect attrs | per-channel trims (front/ctr/surr/back), compression as a control |
+| Zone 2/3 | power, source, volume, mute, seek, tone (remote), sleep (remote), **bass/treble/balance** | (per-channel n/a — zones are stereo) |
 | Tuner | mode | station set/seek, presets, current-station readout |
 | Headphone | volume, bass, treble, balance, mute | power-up/max volume, "mutes main" toggle |
 | Processor | brightness, panel lock, auto-timers, record output, triggers (opt-in), time-sync service | auto-timer *schedules*, serial config, displays, save/restore button, speaker/room config |
 | Video | none (read-only readout was scoped as a separate track) | full `f*` per-source readout (poll-only) |
 
-**Highest-value next targets** (all queryable, so proper stateful entities):
-per-zone **trims** (Main per-channel + Zone 2/3 single bass/treble/balance), then
-the **Main surround/processing-mode** selects.
+**Highest-value next targets** (all queryable, so proper stateful entities): the
+**Main surround / processing-mode** selects (`P1E*`), then optionally the Main
+**per-channel** trims (front/center/surround/back) for fine speaker tuning.

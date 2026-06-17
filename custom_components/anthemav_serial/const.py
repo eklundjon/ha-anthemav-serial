@@ -135,6 +135,21 @@ def cmd_hp_mute(mute: bool) -> str:
     return f"HM{1 if mute else 0}"
 
 
+# ── Per-zone tone trims (bass / treble / balance) ────────────────────────────────
+# Main uses 0.5 dB steps (±12 bass/treble, ±10 balance); Zones 2/3 use the wider
+# 2.0 / 1.25 steps (same as the headphone). Commands: Main master P1BM/P1TM/P1LM;
+# Zones P{z}B/P{z}T/P{z}L. Replies echo `{prefix}sxx.x`.
+MAIN_TONE_MIN, MAIN_TONE_MAX, MAIN_TONE_STEP = -12.0, 12.0, 0.5
+MAIN_BALANCE_MIN, MAIN_BALANCE_MAX, MAIN_BALANCE_STEP = -10.0, 10.0, 0.5
+ZONE_TONE_MIN, ZONE_TONE_MAX, ZONE_TONE_STEP = -14.0, 14.0, 2.0
+ZONE_BALANCE_MIN, ZONE_BALANCE_MAX, ZONE_BALANCE_STEP = -12.5, 12.5, 1.25
+
+
+def cmd_trim(prefix: str, db: float, step: float) -> str:
+    """Set a zone tone trim; prefix is e.g. 'P1BM' (Main bass) or 'P2L' (Zone2 balance)."""
+    return f"{prefix}{_round_step(db, step):+.2f}"
+
+
 def message_signal(entry_id: str) -> str:
     """Dispatcher signal carrying every raw device message for an entry.
 
