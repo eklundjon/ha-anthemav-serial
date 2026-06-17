@@ -153,6 +153,7 @@ class AnthemPanelLockSwitch(_AnthemSwitchBase, RestoreEntity):
     """
 
     _attr_icon = "mdi:lock"
+    _attr_entity_registry_enabled_default = False  # rarely used
 
     # Front-panel lock resets to off whenever the unit/main powers off.
     _POWER_OFF = frozenset({"Unit Off", "Main Off", "P1P0"})
@@ -190,6 +191,7 @@ class AnthemAutoTimersSwitch(_AnthemSwitchBase):
     """Master enable for the auto on/off timers (STE)."""
 
     _attr_icon = "mdi:timer-cog-outline"
+    _attr_entity_registry_enabled_default = False  # rarely used
 
     def __init__(self, client: AnthemClient, entry: ConfigEntry) -> None:
         super().__init__(client, entry)

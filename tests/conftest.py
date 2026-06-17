@@ -90,7 +90,28 @@ def config_entry(hass):
 
 
 @pytest.fixture
-async def setup_integration(hass, config_entry, mock_client):
+def _enable_default_disabled(monkeypatch):
+    """Force entities that ship disabled-by-default to register enabled, so
+    behavior tests can see their state. The disabled-by-default flag itself is
+    verified in test_devices.py."""
+    from custom_components.anthemav_serial.remote import AnthemRemoteEntity
+    from custom_components.anthemav_serial.select import AnthemRecordSourceSelect
+    from custom_components.anthemav_serial.switch import (
+        AnthemAutoTimersSwitch,
+        AnthemPanelLockSwitch,
+    )
+
+    for cls in (
+        AnthemRemoteEntity,
+        AnthemRecordSourceSelect,
+        AnthemAutoTimersSwitch,
+        AnthemPanelLockSwitch,
+    ):
+        monkeypatch.setattr(cls, "_attr_entity_registry_enabled_default", True)
+
+
+@pytest.fixture
+async def setup_integration(hass, config_entry, mock_client, _enable_default_disabled):
     """Set up the full integration with a mocked AnthemClient.
 
     Patches asyncio.sleep so _async_query_extra_attrs returns immediately,
