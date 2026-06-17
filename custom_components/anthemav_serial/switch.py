@@ -8,7 +8,6 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -16,8 +15,6 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from .client import AnthemClient
 from .const import (
     CONF_ID,
-    CONF_MODEL,
-    CONF_SW_VERSION,
     DOMAIN,
     ZONE_2,
     ZONE_3,
@@ -29,14 +26,17 @@ from .const import (
     cmd_trigger,
     message_signal,
 )
+from .device import (
+    headphone_device_info,
+    processor_device_info,
+    zone_device_info,
+)
 
 CONF_TRIGGER_CONTROL = "trigger_control"
 
 _LOGGER = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 0
-
-_ZONE_NAMES: dict[int, str] = {ZONE_MAIN: "Main", ZONE_2: "Zone 2", ZONE_3: "Zone 3"}
 
 
 async def async_setup_entry(
@@ -69,14 +69,8 @@ class _AnthemSwitchBase(SwitchEntity):
     def __init__(self, client: AnthemClient, entry: ConfigEntry) -> None:
         self._client = client
         self._entry_id = entry.entry_id
-        device_id = entry.data[CONF_ID]
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, device_id)},
-            name=entry.title,
-            manufacturer="Anthem",
-            model=entry.data.get(CONF_MODEL),
-            sw_version=entry.data.get(CONF_SW_VERSION),
-        )
+        # Most switches live on the processor; zone/headphone ones override below.
+        self._attr_device_info = processor_device_info(entry)
 
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(
@@ -109,7 +103,8 @@ class AnthemToneDefeatSwitch(_AnthemSwitchBase):
     def __init__(self, client: AnthemClient, zone: int, entry: ConfigEntry) -> None:
         super().__init__(client, entry)
         self.zone = zone
-        self._attr_name = f"{_ZONE_NAMES[zone]} tone defeat"
+        self._attr_device_info = zone_device_info(entry, zone)
+        self._attr_name = "Tone defeat"
         self._attr_unique_id = f"{entry.data[CONF_ID]}_zone{zone}_tone"
         self._attr_is_on: bool | None = None
         self._attr_available = False  # until the zone reports its tone state
@@ -235,7 +230,8 @@ class AnthemHeadphoneMuteSwitch(_AnthemSwitchBase):
 
     def __init__(self, client: AnthemClient, entry: ConfigEntry) -> None:
         super().__init__(client, entry)
-        self._attr_name = "Headphone mute"
+        self._attr_device_info = headphone_device_info(entry)
+        self._attr_name = "Mute"
         self._attr_unique_id = f"{entry.data[CONF_ID]}_hp_mute"
         self._attr_is_on: bool | None = None
         self._re = re.compile(r"^HM([01])$")

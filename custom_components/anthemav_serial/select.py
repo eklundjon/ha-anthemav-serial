@@ -7,7 +7,6 @@ from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -15,8 +14,6 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from .client import AnthemClient
 from .const import (
     CONF_ID,
-    CONF_MODEL,
-    CONF_SW_VERSION,
     DOMAIN,
     FP_BRIGHTNESS,
     REC_MAIN_KEY,
@@ -28,6 +25,7 @@ from .const import (
     cmd_tuner_mode,
     message_signal,
 )
+from .device import processor_device_info, tuner_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -67,14 +65,8 @@ class _AnthemSelectBase(SelectEntity):
     def __init__(self, client: AnthemClient, entry: ConfigEntry) -> None:
         self._client = client
         self._entry_id = entry.entry_id
-        device_id = entry.data[CONF_ID]
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, device_id)},
-            name=entry.title,
-            manufacturer="Anthem",
-            model=entry.data.get(CONF_MODEL),
-            sw_version=entry.data.get(CONF_SW_VERSION),
-        )
+        # Most selects live on the processor; the tuner one overrides below.
+        self._attr_device_info = processor_device_info(entry)
 
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(
@@ -100,7 +92,8 @@ class AnthemTunerModeSelect(_AnthemSelectBase):
 
     def __init__(self, client: AnthemClient, entry: ConfigEntry) -> None:
         super().__init__(client, entry)
-        self._attr_name = "Tuner mode"
+        self._attr_device_info = tuner_device_info(entry)
+        self._attr_name = "Mode"
         self._attr_unique_id = f"{entry.data[CONF_ID]}_tuner_mode"
         self._attr_options = list(TUNER_MODES.values())
         self._by_label = {v: k for k, v in TUNER_MODES.items()}
