@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable
+from typing import NamedTuple
 
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
@@ -27,6 +28,13 @@ from .const import (
     MAIN_BALANCE_MAX,
     MAIN_BALANCE_MIN,
     MAIN_BALANCE_STEP,
+    MAIN_LEVEL_MAX,
+    MAIN_LEVEL_MIN,
+    MAIN_LEVEL_STEP,
+    MAIN_LFE_MAX,
+    MAIN_LFE_MIN,
+    MAIN_SUB_MAX,
+    MAIN_SUB_MIN,
     MAIN_TONE_MAX,
     MAIN_TONE_MIN,
     MAIN_TONE_STEP,
@@ -57,24 +65,70 @@ _RE_COMBINED = re.compile(r"^HS[0-9c-j]V([+-]\d+\.\d+)M[01]$")
 
 _ZONE_OFF_TEXT = {ZONE_MAIN: "Main Off", ZONE_2: "Zone2 Off", ZONE_3: "Zone3 Off"}
 
-# Per zone: (name, uid, command/reply prefix, min, max, step). Main is the master
-# trim (P1BM/P1TM/P1LM); Zones 2/3 use P{z}B/P{z}T/P{z}L.
-_TRIMS: dict[int, list[tuple[str, str, str, float, float, float]]] = {
-    ZONE_MAIN: [
-        ("Bass", "bass", "P1BM", MAIN_TONE_MIN, MAIN_TONE_MAX, MAIN_TONE_STEP),
-        ("Treble", "treble", "P1TM", MAIN_TONE_MIN, MAIN_TONE_MAX, MAIN_TONE_STEP),
-        ("Balance", "balance", "P1LM", MAIN_BALANCE_MIN, MAIN_BALANCE_MAX, MAIN_BALANCE_STEP),
-    ],
-    ZONE_2: [
-        ("Bass", "bass", "P2B", ZONE_TONE_MIN, ZONE_TONE_MAX, ZONE_TONE_STEP),
-        ("Treble", "treble", "P2T", ZONE_TONE_MIN, ZONE_TONE_MAX, ZONE_TONE_STEP),
-        ("Balance", "balance", "P2L", ZONE_BALANCE_MIN, ZONE_BALANCE_MAX, ZONE_BALANCE_STEP),
-    ],
-    ZONE_3: [
-        ("Bass", "bass", "P3B", ZONE_TONE_MIN, ZONE_TONE_MAX, ZONE_TONE_STEP),
-        ("Treble", "treble", "P3T", ZONE_TONE_MIN, ZONE_TONE_MAX, ZONE_TONE_STEP),
-        ("Balance", "balance", "P3L", ZONE_BALANCE_MIN, ZONE_BALANCE_MAX, ZONE_BALANCE_STEP),
-    ],
+_SPEAKER = "mdi:speaker"
+_TUNE = "mdi:tune-vertical"
+
+
+class _Trim(NamedTuple):
+    name: str
+    uid: str           # appended to "zone{z}_" for the unique_id
+    prefix: str        # command + reply prefix, e.g. "P1BM", "P1VF", "P2L"
+    native_min: float
+    native_max: float
+    step: float
+    enabled_default: bool = True
+    icon: str = _TUNE
+
+
+# (native_min, native_max, step) range tuples.
+_TONE = (MAIN_TONE_MIN, MAIN_TONE_MAX, MAIN_TONE_STEP)
+_BAL = (MAIN_BALANCE_MIN, MAIN_BALANCE_MAX, MAIN_BALANCE_STEP)
+_LEVEL = (MAIN_LEVEL_MIN, MAIN_LEVEL_MAX, MAIN_LEVEL_STEP)
+_SUB = (MAIN_SUB_MIN, MAIN_SUB_MAX, MAIN_LEVEL_STEP)
+_LFE = (MAIN_LFE_MIN, MAIN_LFE_MAX, MAIN_LEVEL_STEP)
+_ZTONE = (ZONE_TONE_MIN, ZONE_TONE_MAX, ZONE_TONE_STEP)
+_ZBAL = (ZONE_BALANCE_MIN, ZONE_BALANCE_MAX, ZONE_BALANCE_STEP)
+
+# Main zone: master tone + the per-channel level trims (the remote's LEVEL
+# buttons) ship enabled; the per-channel bass/treble/balance are setup-menu
+# niche and ship disabled-by-default.
+_OFF = {"enabled_default": False}
+_MAIN_TRIMS: list[_Trim] = [
+    _Trim("Bass", "bass", "P1BM", *_TONE),
+    _Trim("Treble", "treble", "P1TM", *_TONE),
+    _Trim("Balance", "balance", "P1LM", *_BAL),
+    _Trim("Front level", "level_front", "P1VF", *_LEVEL, icon=_SPEAKER),
+    _Trim("Center level", "level_center", "P1VC", *_LEVEL, icon=_SPEAKER),
+    _Trim("Surround level", "level_surround", "P1VR", *_LEVEL, icon=_SPEAKER),
+    _Trim("Back level", "level_back", "P1VB", *_LEVEL, icon=_SPEAKER),
+    _Trim("Sub level", "level_sub", "P1VS", *_SUB, icon=_SPEAKER),
+    _Trim("LFE level", "level_lfe", "P1VL", *_LFE, icon=_SPEAKER),
+    _Trim("Front bass", "bass_front", "P1BF", *_TONE, **_OFF),
+    _Trim("Center bass", "bass_center", "P1BC", *_TONE, **_OFF),
+    _Trim("Surround bass", "bass_surround", "P1BR", *_TONE, **_OFF),
+    _Trim("Back bass", "bass_back", "P1BB", *_TONE, **_OFF),
+    _Trim("Front treble", "treble_front", "P1TF", *_TONE, **_OFF),
+    _Trim("Center treble", "treble_center", "P1TC", *_TONE, **_OFF),
+    _Trim("Surround treble", "treble_surround", "P1TR", *_TONE, **_OFF),
+    _Trim("Back treble", "treble_back", "P1TB", *_TONE, **_OFF),
+    _Trim("Front balance", "balance_front", "P1LF", *_BAL, **_OFF),
+    _Trim("Surround balance", "balance_surround", "P1LR", *_BAL, **_OFF),
+    _Trim("Back balance", "balance_back", "P1LB", *_BAL, **_OFF),
+]
+
+
+def _zone_trims(z: int) -> list[_Trim]:
+    return [
+        _Trim("Bass", "bass", f"P{z}B", *_ZTONE),
+        _Trim("Treble", "treble", f"P{z}T", *_ZTONE),
+        _Trim("Balance", "balance", f"P{z}L", *_ZBAL),
+    ]
+
+
+_TRIMS: dict[int, list[_Trim]] = {
+    ZONE_MAIN: _MAIN_TRIMS,
+    ZONE_2: _zone_trims(ZONE_2),
+    ZONE_3: _zone_trims(ZONE_3),
 }
 
 
@@ -105,12 +159,13 @@ async def async_setup_entry(
             ),
             *(
                 AnthemZoneTrimNumber(
-                    client, entry, zone, name=name,
-                    uid_suffix=f"zone{zone}_{uid}", prefix=prefix,
-                    native_min=lo, native_max=hi, step=step,
+                    client, entry, zone, name=t.name,
+                    uid_suffix=f"zone{zone}_{t.uid}", prefix=t.prefix,
+                    native_min=t.native_min, native_max=t.native_max, step=t.step,
+                    enabled_default=t.enabled_default, icon=t.icon,
                 )
                 for zone, specs in _TRIMS.items()
-                for name, uid, prefix, lo, hi, step in specs
+                for t in specs
             ),
         ]
     )
@@ -187,7 +242,7 @@ class AnthemHeadphoneNumber(NumberEntity):
 
 
 class AnthemZoneTrimNumber(NumberEntity):
-    """A per-zone tone trim (bass/treble/balance) as a dB number.
+    """A per-zone tone/level trim (bass/treble/balance/channel level) as a dB number.
 
     Tied to its zone's power: the device answers the query with zone-off text
     while the zone is off, so the entity is unavailable then and re-queries when
@@ -198,7 +253,6 @@ class AnthemZoneTrimNumber(NumberEntity):
     _attr_native_unit_of_measurement = "dB"
     _attr_mode = NumberMode.SLIDER
     _attr_entity_category = EntityCategory.CONFIG
-    _attr_icon = "mdi:tune-vertical"
 
     def __init__(
         self,
@@ -212,19 +266,24 @@ class AnthemZoneTrimNumber(NumberEntity):
         native_min: float,
         native_max: float,
         step: float,
+        enabled_default: bool = True,
+        icon: str = _TUNE,
     ) -> None:
         self._client = client
         self._entry_id = entry.entry_id
         self._prefix = prefix
         self._step = step
         self._attr_name = name
+        self._attr_icon = icon
+        self._attr_entity_registry_enabled_default = enabled_default
         self._attr_unique_id = f"{entry.data[CONF_ID]}_{uid_suffix}"
         self._attr_native_min_value = native_min
         self._attr_native_max_value = native_max
         self._attr_native_step = step
         self._attr_native_value: float | None = None
         self._attr_available = False  # until the zone reports its value
-        self._re = re.compile(rf"^{prefix}([+-]?\d+\.\d+)$")
+        # Tolerate the optional space in the no-signal level reply ("P1VF +0.0").
+        self._re = re.compile(rf"^{prefix}\s?([+-]?\d+\.\d+)$")
         self._power_off = frozenset({f"P{zone}P0", _ZONE_OFF_TEXT[zone], "Unit Off"})
         self._power_on = f"P{zone}P1"
         self._attr_device_info = zone_device_info(entry, zone)

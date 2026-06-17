@@ -143,6 +143,12 @@ MAIN_TONE_MIN, MAIN_TONE_MAX, MAIN_TONE_STEP = -12.0, 12.0, 0.5
 MAIN_BALANCE_MIN, MAIN_BALANCE_MAX, MAIN_BALANCE_STEP = -10.0, 10.0, 0.5
 ZONE_TONE_MIN, ZONE_TONE_MAX, ZONE_TONE_STEP = -14.0, 14.0, 2.0
 ZONE_BALANCE_MIN, ZONE_BALANCE_MAX, ZONE_BALANCE_STEP = -12.5, 12.5, 1.25
+# Main per-channel level trims (dB, 0.5 step): front/center/surround/back ±10,
+# subwoofer +20/-30, LFE +0/-10. Replies may include a space when no signal
+# ("P1VF +0.0"), so the number entity's regex tolerates optional whitespace.
+MAIN_LEVEL_MIN, MAIN_LEVEL_MAX, MAIN_LEVEL_STEP = -10.0, 10.0, 0.5
+MAIN_SUB_MIN, MAIN_SUB_MAX = -30.0, 20.0
+MAIN_LFE_MIN, MAIN_LFE_MAX = -10.0, 0.0
 
 
 def cmd_trim(prefix: str, db: float, step: float) -> str:
@@ -288,34 +294,9 @@ ZONE_EXTRA_ATTRS: list[tuple[str, str, dict[str, str] | None, bool]] = [
     ("dts_neo6_center_gain",     "EMG", None,              True),
     ("thx_reeq_thx",             "ER",  _ON_OFF,           True),
     ("thx_reeq_non_thx",         "EN",  _ON_OFF,           True),
-    # Per-channel volume trims (dB)  (source-independent)
-    ("volume_trim_front",        "VF",  None, False),
-    ("volume_trim_center",       "VC",  None, False),
-    ("volume_trim_surround",     "VR",  None, False),
-    ("volume_trim_back",         "VB",  None, False),
-    ("volume_trim_sub",          "VS",  None, False),
-    ("volume_trim_lfe",          "VL",  None, False),
-    # Balance (dB)  (source-independent)
-    ("balance",                  "LM",  None, False),
-    ("balance_front",            "LF",  None, False),
-    ("balance_surround",         "LR",  None, False),
-    ("balance_back",             "LB",  None, False),
-    # Bass (dB)  (source-independent)
-    ("bass",                     "BM",  None, False),  # zone 1
-    ("bass",                     "B",   None, False),  # zones 2/3
-    ("bass_front",               "BF",  None, False),
-    ("bass_center",              "BC",  None, False),
-    ("bass_surround",            "BR",  None, False),
-    ("bass_rear",                "BB",  None, False),
-    # Treble (dB)  (source-independent)
-    ("treble",                   "TM",  None, False),  # zone 1
-    ("treble",                   "T",   None, False),  # zones 2/3
-    ("treble_front",             "TF",  None, False),
-    ("treble_center",            "TC",  None, False),
-    ("treble_surround",          "TR",  None, False),
-    ("treble_rear",              "TB",  None, False),
-    # Balance (dB)  (source-independent)
-    ("balance",                  "L",   None, False),  # zones 2/3
+    # Tone/level trims (bass/treble/balance/per-channel level) are exposed as
+    # number entities, not attributes — the media_player recognizes-and-ignores
+    # those P{z}* messages (see _owned_elsewhere) rather than carrying them here.
 ]
 
 # Suffixes that are only valid to query on zone 1 (zones 2/3 return Invalid Command
@@ -328,18 +309,11 @@ ZONE_1_ONLY_QUERY_SUFFIXES: frozenset[str] = frozenset({
     # FX modes
     "E", "EF", "EE", "ES", "EU", "ET", "EW", "EX", "EY", "ED",
     "EMP", "EMC", "EMD", "EMG", "ER", "EN",
-    # Volume trims
-    "VF", "VC", "VR", "VB", "VS", "VL",
-    # Balance (zone 1 variants)
-    "LM", "LF", "LR", "LB",
-    # Bass (zone 1 variants)
-    "BM", "BF", "BC", "BR", "BB",
-    # Treble (zone 1 variants)
-    "TM", "TF", "TC", "TR", "TB",
 })
 
 # Suffixes only valid for zones 2/3 (zone 1 uses the longer-suffix variants)
-ZONE_23_ONLY_QUERY_SUFFIXES: frozenset[str] = frozenset({"B", "T", "L"})
+# Zone 2/3 bass/treble/balance are number entities now, not media_player attrs.
+ZONE_23_ONLY_QUERY_SUFFIXES: frozenset[str] = frozenset()
 
 # Suffixes not queryable on any zone (write-only or push-only)
 NON_QUERYABLE_SUFFIXES: frozenset[str] = frozenset({"Z"})

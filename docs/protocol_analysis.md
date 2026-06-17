@@ -83,10 +83,10 @@ push, because a push was never confirmed for them — so "Push: ?" below means
 | `P1TE` / `P1TE?` | Tone controls (0=bypassed,1=enabled) | **Yes** | No | ? | **Impl** ("Main Off" when zone off — Exp) |
 | `P1E…` / `P1E?` (+ EF/EE/ES/EU/ET/EW/EX/EY/ED/EB/EC/EM*/ER/EN) | Surround / processing mode per signal type | **Yes** | No | (on source change) | **Impl** (set `P1E{src}{mode}` — Exp; read as attrs) |
 | `P1C` / `P1C?` | Dynamic-range compression | **Yes** | No | ? | Impl (read as attr) |
-| `P1VF/VC/VR/VB/VS/VL` + `?` | Per-channel trims (front/ctr/surr/back/sub/LFE, ±10/sub +20−30) | **Yes** | No | ? | **Exp** (read live as attrs) |
-| `P1BM` (+ `BF/BC/BR/BB`) | Bass: master + per-channel (±12 / 0.5) | **Yes** | No | ? | **Impl/Exp** master (`P1BM+12.0`); per-channel Doc |
-| `P1TM` (+ `TF/TC/TR/TB`) | Treble: master + per-channel (±12 / 0.5) | **Yes** | No | ? | **Impl/Exp** master; per-channel Doc |
-| `P1LM` (+ `LF/LR/LB`) | Balance: master + per-channel (±10 / 0.5) | **Yes** | No | ? | **Impl/Exp** master; per-channel Doc |
+| `P1VF/VC/VR/VB/VS/VL` + `?` | Per-channel **level** trims (front/ctr/surr/back ±10, sub +20−30, LFE +0−10) — **per current source** | **Yes** | No | **Yes** | **Impl/Exp** (number entities; **pushed** in the power-on/source-change flood; no-signal reply `P1VF +0.0` has a space) |
+| `P1BM` + `BF/BC/BR/BB` | Bass: master + per-channel (±12 / 0.5) | **Yes** | No | ? | **Impl/Exp** (master `P1BM+12.0`; per-channel disabled-by-default) |
+| `P1TM` + `TF/TC/TR/TB` | Treble: master + per-channel (±12 / 0.5) | **Yes** | No | ? | **Impl/Exp** |
+| `P1LM` + `LF/LR/LB` | Balance: master + per-channel (±10 / 0.5) | **Yes** | No | ? | **Impl/Exp** |
 | `P1D?/P1DF?/P1DS?/P1A?/P1AD?` | Decoder / signal / AC3 status (read-only) | **Yes** | (read-only) | (on signal change) | Impl (attrs) |
 | `P1Q?` | Processing-mode text (LCD lower line) | **Yes** | (read-only) | ? | Impl (attr) |
 | `P1Z` | Sleep timer (Off/30/60/90) | **No** | **Yes** | No | **Exp** (set works; no query) |
@@ -195,8 +195,10 @@ detail/noise `fd/fD/fn/fm`, color space `fS`, RGB `fR`, film mode `fF`, gamma
 ## Unsolicited-push summary
 
 **Confirmed push (report-on-change):** per-zone power, source, volume, mute — and
-the decoder/effect status that rides along on a source/signal change. Verified by
-monitoring the stream while changing inputs at the unit (`monitor_unsolicited.py`).
+the decoder/effect status plus the Main per-channel **level** trims (`P1V*`) that
+ride along on a source/signal change (the level trims are per current source).
+Verified by monitoring the stream while changing inputs / on power-on
+(`monitor_unsolicited.py`, `probe_trims.py`).
 
 **Query-driven (push not confirmed):** tone, auto-timers, tuner mode, record
 source, headphone levels, brightness (write-only), and everything under
@@ -209,7 +211,7 @@ relevant power-on, rather than assuming a push.
 
 | Sub-device | Implemented today | Notable still-available |
 |---|---|---|
-| Main | power, source, volume, mute, seek, tone defeat, **master bass/treble/balance**, sound-mode, sleep (remote), read-only decoder/effect attrs | per-channel trims (front/ctr/surr/back), compression as a control |
+| Main | power, source, volume, mute, seek, tone defeat, **all bass/treble/balance + per-channel level trims**, sound-mode, sleep (remote), read-only decoder/effect attrs | compression as a control |
 | Zone 2/3 | power, source, volume, mute, seek, tone (remote), sleep (remote), **bass/treble/balance** | (per-channel n/a — zones are stereo) |
 | Tuner | mode | station set/seek, presets, current-station readout |
 | Headphone | volume, bass, treble, balance, mute | power-up/max volume, "mutes main" toggle |

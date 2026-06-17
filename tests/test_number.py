@@ -98,10 +98,53 @@ async def test_zone_trim_entities_created(hass, setup_integration):
     reg = er.async_get(hass)
     uids = {e.unique_id for e in reg.entities.values() if e.domain == "number"}
     assert {
+        # master tone
         f"{MOCK_ID}_zone1_bass", f"{MOCK_ID}_zone1_treble", f"{MOCK_ID}_zone1_balance",
+        # per-channel level (the remote LEVEL buttons)
+        f"{MOCK_ID}_zone1_level_front", f"{MOCK_ID}_zone1_level_center",
+        f"{MOCK_ID}_zone1_level_surround", f"{MOCK_ID}_zone1_level_back",
+        f"{MOCK_ID}_zone1_level_sub", f"{MOCK_ID}_zone1_level_lfe",
+        # per-channel tone (disabled by default, still registered)
+        f"{MOCK_ID}_zone1_bass_front", f"{MOCK_ID}_zone1_treble_surround",
+        f"{MOCK_ID}_zone1_balance_back",
+        # zones 2/3
         f"{MOCK_ID}_zone2_bass", f"{MOCK_ID}_zone2_treble", f"{MOCK_ID}_zone2_balance",
         f"{MOCK_ID}_zone3_bass", f"{MOCK_ID}_zone3_treble", f"{MOCK_ID}_zone3_balance",
     } <= uids
+
+
+async def test_per_channel_tone_trims_disabled_by_default(hass, config_entry, mock_client):
+    """Master + level trims ship enabled; per-channel bass/treble/balance off."""
+    from unittest.mock import AsyncMock, patch
+
+    with (
+        patch("custom_components.anthemav_serial.AnthemClient", return_value=mock_client),
+        patch("custom_components.anthemav_serial.media_player.asyncio.sleep", AsyncMock()),
+    ):
+        await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    by_uid = {e.unique_id: e for e in er.async_get(hass).entities.values()}
+    assert by_uid[f"{MOCK_ID}_zone1_bass_front"].disabled_by is not None      # per-channel
+    assert by_uid[f"{MOCK_ID}_zone1_level_front"].disabled_by is None         # level (enabled)
+    assert by_uid[f"{MOCK_ID}_zone1_bass"].disabled_by is None                # master (enabled)
+
+
+async def test_main_level_set_sends_command(hass, setup_integration):
+    _, mock_client = setup_integration
+    mock_client._on_message("P1VF+0.0")  # front level reports -> available
+    await hass.async_block_till_done()
+    mock_client.send.reset_mock()
+    await _set(hass, _eid(hass, f"{MOCK_ID}_zone1_level_front"), -3.0)
+    mock_client.send.assert_called_once_with("P1VF-3.00")
+
+
+async def test_main_level_reflects_no_signal_space(hass, setup_integration):
+    """No-signal reply has a space ('P1VF +0.0'); the regex tolerates it."""
+    on_message = setup_integration[1]._on_message
+    on_message("P1VF +0.0")
+    await hass.async_block_till_done()
+    assert hass.states.get(_eid(hass, f"{MOCK_ID}_zone1_level_front")).state == "0.0"
 
 
 async def test_zone_trims_query_on_add(hass, setup_integration):

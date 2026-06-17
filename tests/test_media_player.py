@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from homeassistant.components.media_player import MediaPlayerEntityFeature, MediaPlayerState
 from homeassistant.helpers import entity_registry as er
 
@@ -316,17 +315,24 @@ async def test_zone_extra_attr_enum_resolved(hass, setup_integration):
     assert state.attributes.get("decoder") == "Dolby Digital"
 
 
-async def test_zone_extra_attr_float_value(hass, setup_integration):
+async def test_zone_trim_messages_recognized_not_exposed(hass, setup_integration, caplog):
+    """Trims are number entities now: the media_player recognizes those P{z}*
+    messages (no warning) but carries no trim attribute."""
     _, mock_client = setup_integration
     on_message = mock_client._on_message
 
-    # Volume trim front: P1VF+1.5
     on_message("P1P1")
-    on_message("P1VF+1.5")
+    with caplog.at_level("WARNING"):
+        on_message("P1VF+1.5")   # front level trim
+        on_message("P1BM-6.0")   # master bass
+        on_message("P1LF+2.0")   # front balance
     await hass.async_block_till_done()
 
     state = hass.states.get(zone_entity_id(hass, ZONE_MAIN))
-    assert state.attributes.get("volume_trim_front") == pytest.approx(1.5)
+    assert "volume_trim_front" not in state.attributes
+    assert "bass" not in state.attributes
+    assert "balance_front" not in state.attributes
+    assert "unrecognized message" not in caplog.text.lower()
 
 
 async def test_zone_extra_attr_bare_response_no_warning(hass, setup_integration, caplog):
