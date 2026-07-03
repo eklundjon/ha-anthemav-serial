@@ -59,21 +59,21 @@ Connection handling is provided by the [`serialx`](https://pypi.org/project/seri
 
 1. Go to **Settings** → **Devices & Services** → **Add Integration**.
 2. Search for **Anthem A/V Gen1 Serial**.
-3. Enter the **Connection URL** and **Baud rate**.
-4. Home Assistant will probe the device and add the integration if the connection succeeds.
+3. Pick how Home Assistant should reach the RS-232 port, then fill in that connection's fields.
+4. Home Assistant probes the device and adds the integration if the connection succeeds.
 
-### Connection URL
+### Connection type
 
-The URL scheme selects the transport:
+The first step is a menu; each choice then asks only for the fields it needs:
 
-| Scheme | Example | Use for |
+| Choice | Fields | Use for |
 |---|---|---|
-| `socket://` | `socket://192.168.1.50:14000` | Raw-TCP serial gateways (WaveShare, iTach, …) |
-| `rfc2217://` | `rfc2217://192.168.1.50:4000` | RFC 2217 (Telnet serial) gateways |
-| `esphome://` | `esphome://anthem-bridge.local:6053` | ESPHome UART serial bridge |
-| *(device path)* | `/dev/ttyUSB0` | USB/serial adapter on the HA host |
+| **Network socket** | Host, Port | Raw-TCP serial gateways (WaveShare, iTach, …) — builds a `socket://host:port` URL |
+| **RFC 2217** | Host, Port | RFC 2217 (Telnet serial) gateways |
+| **ESPHome** | Host, Port | ESPHome UART serial bridge |
+| **Local serial** | Device path, Baud rate | A USB/serial adapter on the HA host (e.g. `/dev/ttyUSB0`) |
 
-**Baud rate** matters only for a directly-attached serial adapter (the Anthem Gen1 default is `9600`). It is ignored for the `socket://`, `rfc2217://`, and `esphome://` schemes but is still required by the form.
+**Baud rate** is asked only for a local serial device (the Anthem Gen1 default is `9600`); the network choices don't need it.
 
 ### Changing the connection later
 
@@ -81,57 +81,83 @@ Use the integration's **Reconfigure** option (**Settings → Devices & Services 
 
 > **Upgrading from an older version:** entries created with the old host/port fields are migrated automatically to a `socket://host:port` URL on first start. Existing entities and history are kept.
 
-Three media player entities are created immediately: **Main**, **Zone 2**, and **Zone 3**. A **Tuner** entity is also created and activates automatically when any zone selects the tuner as its source. Three **Remote** entities (one per zone) are also created — see [Entities](#entities).
+Entities are organized into sub-devices under one processor device — **Main**, **Zone 2**, **Zone 3**, **Tuner**, and **Headphone** — plus processor-wide controls, so an unused zone or feature can be disabled in one place. See [Entities](#entities).
 
 ---
 
 ## Entities
 
-### Zone entities — Main, Zone 2, Zone 3
+Entities are grouped into sub-devices hanging off a single **processor** device: **Main**, **Zone 2**, **Zone 3**, **Tuner**, and **Headphone**. This keeps each device page focused and lets you disable an unused zone or feature in one place.
 
-Each zone appears as a `media_player` entity with the following features:
+State is **push-driven** — the device reports changes immediately, so the integration doesn't poll. Entities that reflect device state start **unavailable** until the first status message arrives, and zone-scoped entities go unavailable again while their zone is off.
+
+Some entities are **disabled by default** (noted below); enable them from the entity page if you want them. Triggers are opt-in via an [option](#triggers).
+
+### Zone media players — Main, Zone 2, Zone 3
+
+Each zone is a `media_player`:
 
 | Feature | Details |
 |---|---|
 | Power | Turn on / turn off |
-| Volume | Set level (scaled to configured min/max range) |
+| Volume | Set level (scaled to the configured min/max range) + step up/down |
 | Mute | Mute / unmute |
 | Source | Select from the configured source list |
-
-State is **push-driven**: the device sends updates immediately when anything changes, so the integration does not poll.
-
-Entities start as **unavailable** on startup and become available once the first status message is received from the device.
+| Sound mode | Listening / processing mode — **Main zone only** |
 
 #### Extra state attributes
 
-The Main zone exposes a rich set of additional attributes from the device's DSP and decoder status. Zones 2 and 3 expose a subset. These appear as entity attributes and can be used in automations and templates.
+The Main zone exposes read-only DSP/decoder status as attributes (Zones 2/3 expose a subset), useful in automations and templates. Adjustable trims are separate `number` entities (see [Numbers](#numbers-db-trims)).
 
 | Attribute | Description |
 |---|---|
-| `decoder` | Active decoder (Stereo, Dolby Digital, DTS, …) |
-| `decoder_flags` | Decoder input flags |
-| `source_type` | Digital / analog / PCM / etc. |
-| `audio_fx` | Active listening mode |
-| `compression` | Dynamic range compression setting |
-| `tone_bypass` | Tone control bypass state |
-| `bass` / `treble` | Per-channel tone trim (dB) |
-| `balance` | Balance trim (dB) |
-| `volume_trim_*` | Per-speaker level trim (dB) |
-| `processing_mode` | Free-text processing mode string |
-| *(and more)* | Various FX and DSP mode attributes |
+| `decoder`, `decoder_flags`, `source_type` | Active decoder / input flags / signal type |
+| `audio_fx`, `dolby_*_fx`, `dts_*_fx`, … | Active listening / effect modes per signal type |
+| `compression` | Dynamic-range compression setting |
+| `tone_bypass` | Tone-control bypass state |
+| `processing_mode` | Free-text processing-mode string |
 
-### Tuner entity
+### Tuner
 
-The **Tuner** entity represents the AVM50's built-in AM/FM tuner.
+The **Tuner** represents the built-in AM/FM tuner:
 
-- State is **On** when at least one zone has the tuner selected as its source; **Idle** otherwise.
-- The current frequency is shown as `media_title` (e.g. `FM 91.7 MHz` or `AM 810 kHz`).
-- **Next track** / **Previous track** buttons seek to the next or previous station.
-- The `tuner_mode` attribute reports Stereo / Hi-blend / Mono (visible while the tuner entity is available).
+- State is **On** when at least one zone has the tuner selected, **Idle** otherwise.
+- The current frequency shows as `media_title` (e.g. `FM 91.7 MHz`).
+- **Next track** / **Previous track** seek stations.
 
-### Remote entities — Main, Zone 2, Zone 3
+### Switches
 
-Each zone also gets a `remote` entity, intended for custom remote-control cards. Drive it with `remote.send_command`:
+| Switch | Device | Notes |
+|---|---|---|
+| Tone defeat | Main | On = tone controls bypassed |
+| Headphone mute | Headphone | |
+| Front panel lock | Processor | *Disabled by default* |
+| Auto on/off timers | Processor | Master enable for the unit's timers. *Disabled by default* |
+| Trigger 1 / 2 / 3 | Processor | Only created when [trigger control](#triggers) is enabled |
+
+### Selects
+
+| Select | Device | Notes |
+|---|---|---|
+| Tuner mode | Tuner | Stereo / Hi-blend / Mono |
+| Front panel brightness | Processor | Off / Low / Medium / High |
+| Record output | Processor | Record-zone source (inputs + "Main"). *Disabled by default* |
+
+### Numbers (dB trims)
+
+Adjustable level and tone trims, all in dB:
+
+| Device | Numbers |
+|---|---|
+| Headphone | Volume, Bass, Treble, Balance |
+| Main | Bass, Treble, Balance (master); Front / Center / Surround / Back / Sub / LFE **level**; per-channel Bass / Treble / Balance (*disabled by default*) |
+| Zone 2, Zone 3 | Bass, Treble, Balance |
+
+Main and Zone 2/3 trims are unavailable while their zone is off; headphone trims are always available (the headphone output is independent of zone power).
+
+### Remotes — Main, Zone 2, Zone 3
+
+Each zone also has a `remote` entity for custom remote-control cards, **disabled by default** (its on/off duplicates the zone's power). Drive it with `remote.send_command`:
 
 | Command | Action |
 |---|---|
@@ -139,9 +165,11 @@ Each zone also gets a `remote` entity, intended for custom remote-control cards.
 | `mute_toggle` | Toggle mute |
 | `source_seek_up` / `source_seek_down` | Step through sources |
 | `power_on` / `power_off` | Zone power |
+| `bypass` / `enable` | Tone controls — bypass or enable |
+| `sleep_off` / `sleep_30` / `sleep_60` / `sleep_90` | Sleep timer (minutes) |
 | `source_<key>` | Select a source by its protocol key, e.g. `source_5` for DVD1 |
 
-`remote.turn_on` / `remote.turn_off` map to zone power.
+`remote.turn_on` / `remote.turn_off` map to zone power, and the toggle reflects real zone power.
 
 ```yaml
 action: remote.send_command
@@ -182,6 +210,10 @@ By default, the full hardware volume range (−95.5 dB to +31.5 dB) is mapped to
 
 Controls whether the AVM50's front-panel clock shows **12-hour** or **24-hour** time. This setting is read from the device when you first open the options dialog, so the default reflects whatever the device is currently set to.
 
+### Triggers
+
+Enable **trigger control** to expose the unit's three 12 V trigger outputs as switches. Doing so takes the triggers under RS-232 control (detaching them from their built-in condition table), so it's off by default and gated behind this option rather than the entity list — turning it off hands the triggers back to their internal control. When enabled, `Trigger 1`/`2`/`3` switches appear on the processor device.
+
 ---
 
 ## Actions (Services)
@@ -208,10 +240,9 @@ automation:
 
 ## Known Limitations
 
-- **Zone 4 (Rec output)** sends source-change messages that are silently discarded. It is not exposed as an entity.
-- **Headphone output** is not yet exposed as an entity.
-- **Zones 2 and 3** support fewer DSP attributes than the main zone — this reflects hardware capability, not a software limitation.
+- **Zones 2 and 3** support fewer DSP attributes and trims than the main zone — this reflects hardware capability (they're downmix stereo), not a software limitation.
 - Volume commands for **Zones 2 and 3** use 1.25 dB steps; the main zone uses 0.5 dB steps.
+- A few write-only controls (front-panel brightness, panel lock, triggers) have no device query, so Home Assistant restores their last value across restarts rather than reading them back.
 - The Gen1 protocol exposes no hardware serial number, so the integration cannot auto-detect a duplicate device — adding the same unit twice creates two entries.
 
 ---
