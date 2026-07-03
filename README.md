@@ -41,6 +41,10 @@ Connection handling is provided by the [`serialx`](https://pypi.org/project/seri
 
 ### HACS (recommended)
 
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=eklundjon&repository=ha-anthemav-serial&category=integration)
+
+Click the button above to add this repository to HACS, then **Download** and restart Home Assistant. Or add it manually:
+
 1. Open HACS in your Home Assistant instance.
 2. Go to **Integrations** → **⋮** → **Custom repositories**.
 3. Add the URL of this repository and select **Integration** as the category.
