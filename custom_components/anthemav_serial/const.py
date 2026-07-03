@@ -1,8 +1,6 @@
 DOMAIN = "anthemav_serial"
 
 DEFAULT_NAME = "Anthem AVM50"
-CONF_HOST = "host"
-CONF_PORT = "port"
 CONF_URL = "url"
 CONF_BAUDRATE = "baudrate"
 CONF_ID = "id"
@@ -12,8 +10,6 @@ CONF_SW_VERSION = "sw_version"
 # Anthem Gen1 RS-232 default; only meaningful for native serial URLs
 # (ignored for socket://, rfc2217://, esphome://) but serialx requires it.
 DEFAULT_BAUDRATE = 9600
-
-CMD_TERMINATOR = "\n"
 
 # Zone identifiers
 ZONE_MAIN = 1
@@ -78,7 +74,6 @@ TRIGGER_HANDBACK = "StE1"
 
 # ── Select entities ────────────────────────────────────────────────────────────
 TUNER_MODES: dict[str, str] = {"0": "Stereo", "1": "Hi-blend", "2": "Mono"}
-SLEEP_TIMERS: dict[str, str] = {"0": "Off", "1": "30 min", "2": "60 min", "3": "90 min"}
 FP_BRIGHTNESS: dict[str, str] = {"0": "Off", "1": "Low", "2": "Medium", "3": "High"}
 
 # Record output ("zone 4") extra source: "M" = follow the main-zone source.

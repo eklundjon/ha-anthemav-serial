@@ -3,7 +3,7 @@ from datetime import datetime
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST, CONF_PORT
+from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady
 
@@ -18,7 +18,13 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["media_player", "remote", "switch", "select", "number"]
+PLATFORMS = [
+    Platform.MEDIA_PLAYER,
+    Platform.REMOTE,
+    Platform.SWITCH,
+    Platform.SELECT,
+    Platform.NUMBER,
+]
 
 # AVM50 day encoding: 1=Sunday … 7=Saturday; Python weekday(): 0=Monday … 6=Sunday
 _PYTHON_TO_ANTHEM_DAY = [2, 3, 4, 5, 6, 7, 1]
