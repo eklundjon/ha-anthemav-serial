@@ -1,8 +1,6 @@
 DOMAIN = "anthemav_serial"
 
 DEFAULT_NAME = "Anthem AVM50"
-CONF_HOST = "host"
-CONF_PORT = "port"
 CONF_URL = "url"
 CONF_BAUDRATE = "baudrate"
 CONF_ID = "id"
@@ -12,8 +10,6 @@ CONF_SW_VERSION = "sw_version"
 # Anthem Gen1 RS-232 default; only meaningful for native serial URLs
 # (ignored for socket://, rfc2217://, esphome://) but serialx requires it.
 DEFAULT_BAUDRATE = 9600
-
-CMD_TERMINATOR = "\n"
 
 # Zone identifiers
 ZONE_MAIN = 1
@@ -78,7 +74,6 @@ TRIGGER_HANDBACK = "StE1"
 
 # ── Select entities ────────────────────────────────────────────────────────────
 TUNER_MODES: dict[str, str] = {"0": "Stereo", "1": "Hi-blend", "2": "Mono"}
-SLEEP_TIMERS: dict[str, str] = {"0": "Off", "1": "30 min", "2": "60 min", "3": "90 min"}
 FP_BRIGHTNESS: dict[str, str] = {"0": "Off", "1": "Low", "2": "Medium", "3": "High"}
 
 # Record output ("zone 4") extra source: "M" = follow the main-zone source.
@@ -259,6 +254,8 @@ _DTS_MATRIX_FX: dict[str, str] = {
     "3": "Off", "4": "THX Cinema", "5": "Off", "6": "Off",
 }
 _ON_OFF: dict[str, str] = {"0": "Off", "1": "On"}
+_AC3_STATUS: dict[str, str] = {"0": "Not AC3", "1": "2-Channel", "2": "Multichannel"}
+_SLEEP_TIMER: dict[str, str] = {"0": "Off", "1": "30 min", "2": "60 min", "3": "90 min"}
 
 # Extra per-zone attributes beyond power/source/volume/mute.
 # Each tuple: (ha_attr_name, cmd_suffix, enum_map or None, source_prefixed).
@@ -271,12 +268,12 @@ ZONE_EXTRA_ATTRS: list[tuple[str, str, dict[str, str] | None, bool]] = [
     ("decoder_flags",            "DF",  _DECODER_FLAGS,   True),
     ("source_type",              "DS",  _SOURCE_TYPE,     True),
     ("processing_mode",          "Q",   None,             False),  # free-text, no prefix
-    ("ac3_status",               "A",   {"0": "Not AC3", "1": "2-Channel", "2": "Multichannel"}, True),
+    ("ac3_status",               "A",   _AC3_STATUS,      True),
     ("ac3_dialog_normalization", "AD",  None,             True),
     # DSP / listening mode  (source-independent)
     ("compression",              "C",   {"0": "Normal", "1": "Reduced", "2": "Night"}, False),
     ("tone_bypass",              "TE",  {"0": "On", "1": "Off"},                       False),
-    ("sleep_timer",              "Z",   {"0": "Off", "1": "30 min", "2": "60 min", "3": "90 min"}, False),
+    ("sleep_timer",              "Z",   _SLEEP_TIMER,     False),
     # FX modes  (all source-prefixed)
     ("audio_fx",                 "E",   _FX_MODES,        True),
     ("dolby_stereo_fx",          "EF",  _FX_MODES,        True),

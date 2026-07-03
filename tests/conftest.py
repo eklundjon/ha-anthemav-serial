@@ -12,8 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry  # noqa: E402
 
-from custom_components.anthemav_serial.const import DOMAIN, VOLUME_MAX, VOLUME_MIN  # noqa: E402
-
+from custom_components.anthemav_serial.const import DOMAIN  # noqa: E402
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 

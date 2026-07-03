@@ -8,7 +8,6 @@ import pytest
 
 from custom_components.anthemav_serial.client import AnthemClient
 
-
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _make_stream(lines: list[bytes] | None = None):
@@ -139,7 +138,6 @@ async def test_listen_does_not_call_on_connection_lost_when_stopped():
 
 async def test_listen_resolves_pending_queries():
     """Messages matching a pending query prefix must resolve the future."""
-    resolved = []
     reader, writer = _make_stream(lines=[b"STF1\n", b""])
 
     client = await _connected_client(reader, writer)

@@ -146,7 +146,7 @@ class AnthemClient:
         try:
             await self.send(command)
             return await asyncio.wait_for(asyncio.shield(fut), timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
         finally:
             if entry in self._pending_queries:
@@ -228,7 +228,7 @@ class AnthemClient:
                 # forever — an unkillable task that segfaulted at interpreter
                 # teardown while still holding the socket transport.
                 raise
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001
                 _LOGGER.error("Error reading from %s: %s", self.url, err)
                 break
 

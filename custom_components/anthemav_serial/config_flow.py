@@ -6,7 +6,6 @@ from typing import Any
 from uuid import uuid4
 
 import voluptuous as vol
-
 from homeassistant.config_entries import (
     SOURCE_RECONFIGURE,
     ConfigEntry,
@@ -17,8 +16,6 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_DEVICE, CONF_HOST, CONF_PORT
 from homeassistant.core import callback
 from homeassistant.helpers import selector
-
-_LOGGER = logging.getLogger(__name__)
 
 from .client import AnthemClient
 from .const import (
@@ -36,6 +33,7 @@ from .const import (
     VOLUME_MIN,
 )
 
+_LOGGER = logging.getLogger(__name__)
 _IDENTITY_RE = re.compile(r"^(.+?)\s+(v\d+\.\S+)\s+(.+)$")
 
 

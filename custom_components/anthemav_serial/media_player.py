@@ -27,9 +27,9 @@ from .const import (
     VOLUME_MAX,
     VOLUME_MIN,
     ZONE_1_ONLY_QUERY_SUFFIXES,
-    ZONE_23_ONLY_QUERY_SUFFIXES,
     ZONE_2,
     ZONE_3,
+    ZONE_23_ONLY_QUERY_SUFFIXES,
     ZONE_EXTRA_ATTRS,
     ZONE_MAIN,
     cmd_mute,
@@ -220,7 +220,9 @@ class AnthemZoneEntity(MediaPlayerEntity):
         self._extra_attrs: dict[str, Any] = {}
         self._extra_attr_parsers: list[tuple[re.Pattern[str], str, dict[str, str] | None, bool]] = [
             (re.compile(rf"P{zone}{re.escape(suffix)}(.*)$"), name, enum_map, src_prefix)
-            for name, suffix, enum_map, src_prefix in sorted(ZONE_EXTRA_ATTRS, key=lambda x: -len(x[1]))
+            for name, suffix, enum_map, src_prefix in sorted(
+                ZONE_EXTRA_ATTRS, key=lambda x: -len(x[1])
+            )
         ]
 
     async def async_added_to_hass(self) -> None:
@@ -264,6 +266,10 @@ class AnthemZoneEntity(MediaPlayerEntity):
         finally:
             self._extra_attr_query_active = False
 
+    def _scale_volume(self, db: float) -> float:
+        """Map a device dB level to the 0–1 HA volume scale (configured range)."""
+        return max(0.0, min(1.0, (db - self._vol_min) / (self._vol_max - self._vol_min)))
+
     def handle_message(self, message: str) -> None:
         """Parse a push status message and update entity state."""
         changed = False
@@ -297,7 +303,7 @@ class AnthemZoneEntity(MediaPlayerEntity):
         # Volume: P{z}VM{db} (zone 1, e.g. "P1VM-35.0") or P{z}V{db} (zones 2/3, e.g. "P2V-15.0")
         if m := re.match(rf"P{z}VM?([+-]?\d+\.\d+)$", message):
             db = float(m.group(1))
-            self._attr_volume_level = max(0.0, min(1.0, (db - self._vol_min) / (self._vol_max - self._vol_min)))
+            self._attr_volume_level = self._scale_volume(db)
             changed = True
 
         # Mute: P{z}M{0|1}
@@ -324,7 +330,7 @@ class AnthemZoneEntity(MediaPlayerEntity):
             self._source_id = m.group(1)
             self._attr_source = self._sources.get(self._source_id)
             db = float(m.group(2))
-            self._attr_volume_level = max(0.0, min(1.0, (db - self._vol_min) / (self._vol_max - self._vol_min)))
+            self._attr_volume_level = self._scale_volume(db)
             self._attr_is_volume_muted = m.group(3) == "1"
             self._attr_available = True
             changed = True
@@ -332,7 +338,7 @@ class AnthemZoneEntity(MediaPlayerEntity):
             self._source_id = m.group(1)  # audio source
             self._attr_source = self._sources.get(self._source_id)
             db = float(m.group(2))
-            self._attr_volume_level = max(0.0, min(1.0, (db - self._vol_min) / (self._vol_max - self._vol_min)))
+            self._attr_volume_level = self._scale_volume(db)
             self._attr_is_volume_muted = m.group(3) == "1"
             self._attr_available = True
             changed = True
