@@ -114,7 +114,7 @@ class AnthemToneDefeatSwitch(_AnthemSwitchBase):
         self._power_on = f"P{zone}P1"
 
     async def _request_state(self) -> None:
-        await self._client.send(f"P{self.zone}TE?")
+        self._client.request_query(f"P{self.zone}TE?")
 
     @callback
     def _handle_message(self, message: str) -> None:
@@ -131,7 +131,7 @@ class AnthemToneDefeatSwitch(_AnthemSwitchBase):
                 self.async_write_ha_state()
         elif message == self._power_on:
             # Zone came on — re-query so the toggle reflects the real state.
-            self.hass.async_create_task(self._client.send(f"P{self.zone}TE?"))
+            self._client.request_query(f"P{self.zone}TE?")
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         # Defeat on -> bypass the tone controls (TE0).
@@ -201,7 +201,7 @@ class AnthemAutoTimersSwitch(_AnthemSwitchBase):
         self._re = re.compile(r"^STE([01])$")
 
     async def _request_state(self) -> None:
-        await self._client.send("STE?")
+        self._client.request_query("STE?")
 
     @callback
     def _handle_message(self, message: str) -> None:
@@ -240,7 +240,7 @@ class AnthemHeadphoneMuteSwitch(_AnthemSwitchBase):
         self._re_combined = re.compile(r"^HS[0-9c-j]V[+-]\d+\.\d+M([01])$")
 
     async def _request_state(self) -> None:
-        await self._client.send("H?")
+        self._client.request_query("H?")
 
     @callback
     def _handle_message(self, message: str) -> None:

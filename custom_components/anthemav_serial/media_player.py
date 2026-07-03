@@ -205,6 +205,16 @@ class AnthemZoneEntity(MediaPlayerEntity):
         self._attr_source_list = list(self._sources.values())
         self._source_by_name = {name: idx for idx, name in self._sources.items()}
 
+        # Tone/level trim messages (bass/treble/balance/per-channel level) are
+        # owned by the number platform; recognize-and-ignore them here so the
+        # zone handler doesn't warn and doesn't carry a duplicate attribute.
+        # Main: V[FCRBSL] level, B/T[MFCRB] bass/treble, L[MFRB] balance (NOT VM
+        # = master volume or TE = tone enable). Zones 2/3: single B/T/L.
+        if zone == ZONE_MAIN:
+            self._owned_elsewhere = re.compile(r"^P1(V[FCRBSL]|B[MFCRB]|T[MFCRB]|L[MFRB])\s?[+-]")
+        else:
+            self._owned_elsewhere = re.compile(rf"^P{zone}[BTL]\s?[+-]")
+
         # Extra attributes: storage dict + pre-compiled parsers.
         # Sorted longest-suffix-first so e.g. "DF" is tried before "D".
         self._extra_attrs: dict[str, Any] = {}
@@ -259,6 +269,11 @@ class AnthemZoneEntity(MediaPlayerEntity):
         changed = False
         recognized = False  # matched a known pattern, even if the value was unchanged
         z = self.zone
+
+        # Trims (bass/treble/balance/level) are number entities, handled via the
+        # dispatcher — silently ignore them here (no attribute, no warning).
+        if self._owned_elsewhere.match(message):
+            return
 
         # Zone-off notification (e.g. "Main Off", "Zone2 Off") — device sends this
         # instead of P{z}P0 in some contexts (e.g. response to P{z}? when zone is off).

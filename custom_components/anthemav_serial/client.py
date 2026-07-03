@@ -8,6 +8,10 @@ _LOGGER = logging.getLogger(__name__)
 
 CONNECT_TIMEOUT = 10
 RECONNECT_DELAY = 5
+# Seconds between paced state queries. The device's incoming buffer is only 64
+# bytes (protocol note 10: "allow time for processing"), so a burst of per-entity
+# re-queries on startup / power-on is spaced out rather than fired all at once.
+QUERY_INTERVAL = 0.1
 
 
 class AnthemClient:
@@ -32,6 +36,10 @@ class AnthemClient:
         self._lock = asyncio.Lock()
         self._connect_lock = asyncio.Lock()
         self._listen_task: asyncio.Task | None = None
+        self._query_task: asyncio.Task | None = None
+        # Paced queue of state queries (drained by _drain_queries, one every
+        # QUERY_INTERVAL) so bursts don't overflow the 64-byte device buffer.
+        self._query_queue: asyncio.Queue[str] = asyncio.Queue()
         self._running = False
         self.last_command: str = ""
         # Each pending query is a (matcher, future) pair. The first received
@@ -81,16 +89,18 @@ class AnthemClient:
         self._running = True
         await self.connect()
         self._listen_task = asyncio.create_task(self._supervise())
+        self._query_task = asyncio.create_task(self._drain_queries())
 
     async def stop(self) -> None:
         """Disconnect and stop the listener."""
         self._running = False
-        if self._listen_task:
-            self._listen_task.cancel()
-            try:
-                await self._listen_task
-            except asyncio.CancelledError:
-                pass
+        for task in (self._listen_task, self._query_task):
+            if task:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
         if self._writer:
             self._writer.close()
             try:
@@ -141,6 +151,27 @@ class AnthemClient:
         finally:
             if entry in self._pending_queries:
                 self._pending_queries.remove(entry)
+
+    def request_query(self, command: str) -> None:
+        """Enqueue a state query to be sent paced (one per QUERY_INTERVAL).
+
+        Entities use this for startup / power-on re-queries so a burst of them
+        doesn't overflow the device's 64-byte incoming buffer. Replies still
+        arrive via on_message like any other query.
+        """
+        self._query_queue.put_nowait(command)
+
+    async def _drain_queries(self) -> None:
+        """Send queued state queries one at a time, paced for the device buffer."""
+        while True:
+            command = await self._query_queue.get()
+            try:
+                await self.send(command)
+            except Exception as err:  # noqa: BLE001 — one bad query must not stop the pump
+                _LOGGER.debug("Paced query %r failed: %s", command, err)
+            finally:
+                self._query_queue.task_done()
+            await asyncio.sleep(QUERY_INTERVAL)
 
     async def _supervise(self) -> None:
         """Run the read loop, reconnecting after drops until stopped."""

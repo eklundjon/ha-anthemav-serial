@@ -101,7 +101,7 @@ class AnthemTunerModeSelect(_AnthemSelectBase):
         self._re = re.compile(r"^TH([012])$")
 
     async def _request_state(self) -> None:
-        await self._client.send("TH?")
+        self._client.request_query("TH?")
 
     @callback
     def _handle_message(self, message: str) -> None:
@@ -147,7 +147,7 @@ class AnthemRecordSourceSelect(_AnthemSelectBase):
         self._re_x = re.compile(r"^P4X([0-9c-j])[0-9c-j]$")
 
     async def _request_state(self) -> None:
-        await self._client.send("P4S?")
+        self._client.request_query("P4S?")
 
     @callback
     def _handle_message(self, message: str) -> None:
@@ -165,7 +165,7 @@ class AnthemRecordSourceSelect(_AnthemSelectBase):
                 self.async_write_ha_state()
         elif message == "P1P1":
             # Main came on — re-query so the record source repopulates.
-            self.hass.async_create_task(self._client.send("P4S?"))
+            self._client.request_query("P4S?")
 
     async def async_select_option(self, option: str) -> None:
         await self._client.send(cmd_rec_source(self._by_label[option]))

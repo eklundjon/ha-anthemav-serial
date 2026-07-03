@@ -55,6 +55,10 @@ def mock_client():
     client.start = AsyncMock()
     client.stop = AsyncMock()
     client.send = AsyncMock()
+    # request_query is the paced query path; route it straight to send so tests
+    # observe queries in send.call_args_list. .close() avoids an un-awaited
+    # coroutine warning from the AsyncMock send.
+    client.request_query = MagicMock(side_effect=lambda cmd: client.send(cmd).close())
     client.query_one = AsyncMock(return_value=None)
     client._on_message = None
     client._on_connection_lost = None

@@ -124,7 +124,7 @@ class AnthemRemoteEntity(RemoteEntity):
                 self.hass, message_signal(self._entry_id), self._handle_message
             )
         )
-        self.hass.async_create_task(self._client.send(f"P{self.zone}P?"))
+        self._client.request_query(f"P{self.zone}P?")
 
     @callback
     def _handle_message(self, message: str) -> None:

@@ -35,7 +35,9 @@ async def test_entities_land_on_the_right_device(hass, setup_integration):
         f"{MOCK_ID}_zone1": f"{MOCK_ID}_zone1",          # main media_player
         f"{MOCK_ID}_zone1_remote": f"{MOCK_ID}_zone1",   # main remote
         f"{MOCK_ID}_zone1_tone": f"{MOCK_ID}_zone1",     # tone defeat
+        f"{MOCK_ID}_zone1_bass": f"{MOCK_ID}_zone1",     # main tone trim
         f"{MOCK_ID}_zone2": f"{MOCK_ID}_zone2",
+        f"{MOCK_ID}_zone2_balance": f"{MOCK_ID}_zone2",  # zone 2 tone trim
         f"{MOCK_ID}_tuner": f"{MOCK_ID}_tuner",          # tuner media_player
         f"{MOCK_ID}_tuner_mode": f"{MOCK_ID}_tuner",     # tuner mode select
         f"{MOCK_ID}_hp_volume": f"{MOCK_ID}_headphone",

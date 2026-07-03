@@ -298,3 +298,67 @@ async def test_stop_survives_peer_closed_socket():
     client._listen_task = asyncio.create_task(client._listen())
     await client.stop()  # must not raise
     assert client._writer is None
+
+
+# ── paced queries ────────────────────────────────────────────────────────────────
+
+async def test_request_query_drains_in_order(monkeypatch):
+    """Queued queries drain one at a time through send() (paced for the buffer)."""
+    import custom_components.anthemav_serial.client as client_mod
+
+    monkeypatch.setattr(client_mod, "QUERY_INTERVAL", 0)
+    reader, writer = _make_stream()
+    client = await _connected_client(reader, writer)
+    sent: list[str] = []
+
+    async def fake_send(cmd):
+        sent.append(cmd)
+
+    client.send = fake_send
+    task = asyncio.create_task(client._drain_queries())
+    for q in ("P1TE?", "P4S?", "P1BM?"):
+        client.request_query(q)
+    await client._query_queue.join()
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    assert sent == ["P1TE?", "P4S?", "P1BM?"]
+
+
+async def test_request_query_pump_survives_a_failing_query(monkeypatch):
+    """One send error must not kill the pump — later queries still go out."""
+    import custom_components.anthemav_serial.client as client_mod
+
+    monkeypatch.setattr(client_mod, "QUERY_INTERVAL", 0)
+    reader, writer = _make_stream()
+    client = await _connected_client(reader, writer)
+    sent: list[str] = []
+
+    async def flaky_send(cmd):
+        if cmd == "BOOM":
+            raise OSError("send failed")
+        sent.append(cmd)
+
+    client.send = flaky_send
+    task = asyncio.create_task(client._drain_queries())
+    for q in ("P1TE?", "BOOM", "P4S?"):
+        client.request_query(q)
+    await client._query_queue.join()
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    assert sent == ["P1TE?", "P4S?"]
+
+
+async def test_stop_cancels_query_task():
+    reader, writer = _make_stream()
+    client = await _connected_client(reader, writer)
+    client._running = True
+    client._query_task = asyncio.create_task(client._drain_queries())
+    await asyncio.sleep(0)
+    await client.stop()
+    assert client._query_task.done()
