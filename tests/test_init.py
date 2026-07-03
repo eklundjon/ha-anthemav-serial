@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from custom_components.anthemav_serial.const import DOMAIN
-
 
 # ── Setup / unload ─────────────────────────────────────────────────────────────
 

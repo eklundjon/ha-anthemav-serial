@@ -1,7 +1,8 @@
 """Tests for the sub-device topology (processor + zone/tuner/headphone children)."""
 from __future__ import annotations
 
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 
 from custom_components.anthemav_serial.const import DOMAIN
 from tests.conftest import MOCK_ID

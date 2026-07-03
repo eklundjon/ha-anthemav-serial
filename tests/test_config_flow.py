@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.data_entry_flow import FlowResultType
-
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.anthemav_serial.const import (
@@ -16,7 +15,6 @@ from custom_components.anthemav_serial.const import (
 )
 from tests.conftest import (
     ENTRY_DATA,
-    MOCK_BAUDRATE,
     MOCK_HOST,
     MOCK_ID,
     MOCK_IDENTITY,
@@ -25,7 +23,6 @@ from tests.conftest import (
     MOCK_SW_VERSION,
     MOCK_URL,
 )
-
 
 # ── Config flow (user step) ────────────────────────────────────────────────────
 

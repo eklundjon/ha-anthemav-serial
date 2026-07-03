@@ -1,11 +1,7 @@
 """Tests for the remote platform."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, call
-
-import pytest
-
-from custom_components.anthemav_serial.const import DOMAIN, ZONE_MAIN, ZONE_2, ZONE_3
+from custom_components.anthemav_serial.const import ZONE_2, ZONE_3, ZONE_MAIN
 
 
 def remote_entity_id(hass, zone: int) -> str:
@@ -108,7 +104,10 @@ async def test_num_repeats(hass, setup_integration):
     mock_client.send.reset_mock()
     await hass.services.async_call(
         "remote", "send_command",
-        {"entity_id": remote_entity_id(hass, ZONE_MAIN), "command": ["volume_up"], "num_repeats": 3},
+        {
+            "entity_id": remote_entity_id(hass, ZONE_MAIN),
+            "command": ["volume_up"], "num_repeats": 3,
+        },
         blocking=True,
     )
     assert mock_client.send.call_count == 3

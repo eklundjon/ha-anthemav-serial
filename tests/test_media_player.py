@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, patch
 
 from homeassistant.components.media_player import MediaPlayerEntityFeature, MediaPlayerState
 from homeassistant.helpers import entity_registry as er
-
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.anthemav_serial.const import (
@@ -17,7 +16,6 @@ from custom_components.anthemav_serial.const import (
     ZONE_MAIN,
 )
 from tests.conftest import ENTRY_DATA, MOCK_ID, MOCK_MODEL
-
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 

@@ -4,10 +4,9 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 from homeassistant.helpers import entity_registry as er
-
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.anthemav_serial.const import DOMAIN, ZONE_2, ZONE_MAIN
+from custom_components.anthemav_serial.const import DOMAIN, ZONE_MAIN
 from tests.conftest import ENTRY_DATA, MOCK_ID, MOCK_MODEL
 
 

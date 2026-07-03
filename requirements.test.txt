@@ -1,4 +1,5 @@
 pytest
 pytest-asyncio
 pytest-homeassistant-custom-component
+ruff
 serialx==1.7.3
