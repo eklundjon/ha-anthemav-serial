@@ -1,11 +1,12 @@
 import logging
-from datetime import datetime
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
+from homeassistant.helpers.typing import ConfigType
+from homeassistant.util import dt as dt_util
 
 from .client import AnthemClient
 from .const import (
@@ -28,6 +29,32 @@ PLATFORMS = [
 
 # AVM50 day encoding: 1=Sunday … 7=Saturday; Python weekday(): 0=Monday … 6=Sunday
 _PYTHON_TO_ANTHEM_DAY = [2, 3, 4, 5, 6, 7, 1]
+
+SERVICE_SYNC_TIME = "sync_time"
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the domain-wide sync_time action once (not per config entry)."""
+
+    async def _handle_sync_time(call: ServiceCall) -> None:
+        clients: dict[str, AnthemClient] = hass.data.get(DOMAIN, {})
+        if not clients:
+            raise ServiceValidationError("No Anthem device is loaded to sync")
+
+        now = dt_util.now()
+        day_cmd = f"STD{_PYTHON_TO_ANTHEM_DAY[now.weekday()]}"
+        for entry_id, client in clients.items():
+            entry = hass.config_entries.async_get_entry(entry_id)
+            use_24hr = bool(entry and entry.options.get("time_format_24hr", False))
+            fmt_cmd = "STF1" if use_24hr else "STF0"
+            time_str = now.strftime("%H:%M") if use_24hr else now.strftime("%I:%M%p")
+            _LOGGER.debug("Sync time on %s: %s;%s;STC%s", entry_id, fmt_cmd, day_cmd, time_str)
+            await client.send(f"{fmt_cmd};{day_cmd};STC{time_str}")
+
+    hass.services.async_register(
+        DOMAIN, SERVICE_SYNC_TIME, _handle_sync_time, schema=vol.Schema({})
+    )
+    return True
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -74,21 +101,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = client
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
-
-    async def _handle_sync_time(call: ServiceCall) -> None:
-        now = datetime.now()
-        use_24hr: bool = entry.options.get("time_format_24hr", False)
-
-        day_cmd = f"STD{_PYTHON_TO_ANTHEM_DAY[now.weekday()]}"
-        fmt_cmd = "STF1" if use_24hr else "STF0"
-        time_str = now.strftime("%H:%M") if use_24hr else now.strftime("%I:%M%p")
-        time_cmd = f"STC{time_str}"
-
-        _LOGGER.debug("Syncing time: %s %s %s", day_cmd, fmt_cmd, time_cmd)
-        await client.send(f"{fmt_cmd};{day_cmd};{time_cmd}")
-
-    hass.services.async_register(DOMAIN, "sync_time", _handle_sync_time, schema=vol.Schema({}))
-
     return True
 
 

@@ -69,25 +69,40 @@ async def test_sync_time_sends_correct_day(
     config_entry, mock_client = setup_integration
     fake_now = datetime(2024, 1, 1 + weekday, 10, 30)  # Monday–Sunday
 
-    with patch("custom_components.anthemav_serial.datetime") as mock_dt:
+    with patch("custom_components.anthemav_serial.dt_util") as mock_dt:
         mock_dt.now.return_value = fake_now
-        mock_dt.today.return_value = fake_now
         await hass.services.async_call(DOMAIN, "sync_time", {}, blocking=True)
 
     sent: str = mock_client.send.call_args[0][0]
     assert f"STD{expected_day}" in sent
 
 
-async def test_sync_time_12hr_format(hass, setup_integration):
-    config_entry, mock_client = setup_integration
-    # Ensure 12hr mode is set in options.
-    hass.config_entries.async_update_entry(config_entry, options={"time_format_24hr": False})
+async def _setup_with_time_format(hass, mock_client, use_24hr):
+    """Set up one entry with a given clock-format option (no update-triggered reload)."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+    from tests.conftest import ENTRY_DATA, MOCK_ID, MOCK_MODEL
+
+    entry = MockConfigEntry(
+        domain=DOMAIN, title=MOCK_MODEL, data=ENTRY_DATA,
+        options={"time_format_24hr": use_24hr}, unique_id=MOCK_ID, version=2,
+    )
+    entry.add_to_hass(hass)
+    with (
+        patch("custom_components.anthemav_serial.AnthemClient", return_value=mock_client),
+        patch("custom_components.anthemav_serial.media_player.asyncio.sleep", AsyncMock()),
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+    return entry
+
+
+async def test_sync_time_12hr_format(hass, mock_client):
+    await _setup_with_time_format(hass, mock_client, use_24hr=False)
     fake_now = datetime(2024, 1, 1, 14, 5)  # 14:05 → 02:05PM in 12hr
 
-    with patch("custom_components.anthemav_serial.datetime") as mock_dt:
+    with patch("custom_components.anthemav_serial.dt_util") as mock_dt:
         mock_dt.now.return_value = fake_now
-        mock_dt.today.return_value = fake_now
         await hass.services.async_call(DOMAIN, "sync_time", {}, blocking=True)
 
     sent: str = mock_client.send.call_args[0][0]
@@ -95,20 +110,28 @@ async def test_sync_time_12hr_format(hass, setup_integration):
     assert "STC02:05PM" in sent
 
 
-async def test_sync_time_24hr_format(hass, setup_integration):
-    config_entry, mock_client = setup_integration
-    hass.config_entries.async_update_entry(config_entry, options={"time_format_24hr": True})
-
+async def test_sync_time_24hr_format(hass, mock_client):
+    await _setup_with_time_format(hass, mock_client, use_24hr=True)
     fake_now = datetime(2024, 1, 1, 14, 5)
 
-    with patch("custom_components.anthemav_serial.datetime") as mock_dt:
+    with patch("custom_components.anthemav_serial.dt_util") as mock_dt:
         mock_dt.now.return_value = fake_now
-        mock_dt.today.return_value = fake_now
         await hass.services.async_call(DOMAIN, "sync_time", {}, blocking=True)
 
     sent: str = mock_client.send.call_args[0][0]
     assert "STF1" in sent
     assert "STC14:05" in sent
+
+
+async def test_sync_time_no_devices_raises(hass):
+    """The service is domain-wide; calling it with no loaded entry errors clearly."""
+    from homeassistant.exceptions import ServiceValidationError
+    from homeassistant.setup import async_setup_component
+
+    assert await async_setup_component(hass, DOMAIN, {})
+    assert hass.services.has_service(DOMAIN, "sync_time")
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(DOMAIN, "sync_time", {}, blocking=True)
 
 
 async def test_sync_time_stacks_all_commands_in_one_send(hass, setup_integration):
@@ -117,9 +140,8 @@ async def test_sync_time_stacks_all_commands_in_one_send(hass, setup_integration
     mock_client.send.reset_mock()  # ignore zone queries sent during setup
     fake_now = datetime(2024, 1, 1, 10, 0)  # Monday
 
-    with patch("custom_components.anthemav_serial.datetime") as mock_dt:
+    with patch("custom_components.anthemav_serial.dt_util") as mock_dt:
         mock_dt.now.return_value = fake_now
-        mock_dt.today.return_value = fake_now
         await hass.services.async_call(DOMAIN, "sync_time", {}, blocking=True)
 
     assert mock_client.send.call_count == 1

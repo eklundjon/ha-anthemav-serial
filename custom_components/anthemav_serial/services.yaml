@@ -1,6 +1,2 @@
+# sync_time takes no fields; its name/description live in strings.json / translations.
 sync_time:
-  name: Sync device clock
-  description: >
-    Sets the Anthem device's clock (day, time, and 12/24-hour format) to the
-    current time on the Home Assistant host. The 12/24-hour format is taken
-    from the integration's options.

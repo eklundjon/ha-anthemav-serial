@@ -103,5 +103,11 @@
     "error": {
       "vol_min_not_below_max": "Each zone's minimum volume must be below its maximum"
     }
+  },
+  "services": {
+    "sync_time": {
+      "name": "Sync device clock",
+      "description": "Sets the Anthem device's clock (day, time, and 12/24-hour format) to Home Assistant's current time. The 12/24-hour format is taken from the integration's options."
+    }
   }
 }
