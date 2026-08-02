@@ -154,10 +154,19 @@ def cmd_trim(prefix: str, db: float, step: float) -> str:
 def message_signal(entry_id: str) -> str:
     """Dispatcher signal carrying every raw device message for an entry.
 
-    Lets non-media_player platforms (switch, etc.) observe the device stream
-    without each one wiring its own client handler.
+    Every platform (media_player included) subscribes and self-filters, so the
+    router is just a broadcaster and no entity's add-time query reply is dropped.
     """
     return f"{DOMAIN}_message_{entry_id}"
+
+
+def connection_signal(entry_id: str) -> str:
+    """Dispatcher signal carrying connection state (True=up, False=down).
+
+    Every entity subscribes: it goes unavailable on a drop and re-queries on
+    reconnect (the device only pushes on change).
+    """
+    return f"{DOMAIN}_connection_{entry_id}"
 
 # Source map — keys are the characters sent to/received from the device
 SOURCES = {

@@ -52,6 +52,7 @@ from .const import (
     cmd_hp_treble,
     cmd_hp_volume,
     cmd_trim,
+    connection_signal,
     message_signal,
 )
 from .device import headphone_device_info, zone_device_info
@@ -221,7 +222,19 @@ class AnthemHeadphoneNumber(NumberEntity):
                 self.hass, message_signal(self._entry_id), self._handle_message
             )
         )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, connection_signal(self._entry_id), self._handle_connection
+            )
+        )
         self._client.request_query(f"H{self._letter}?")
+
+    @callback
+    def _handle_connection(self, connected: bool) -> None:
+        self._attr_available = connected
+        self.async_write_ha_state()
+        if connected:
+            self._client.request_query(f"H{self._letter}?")
 
     @callback
     def _handle_message(self, message: str) -> None:
@@ -294,7 +307,19 @@ class AnthemZoneTrimNumber(NumberEntity):
                 self.hass, message_signal(self._entry_id), self._handle_message
             )
         )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, connection_signal(self._entry_id), self._handle_connection
+            )
+        )
         self._client.request_query(f"{self._prefix}?")
+
+    @callback
+    def _handle_connection(self, connected: bool) -> None:
+        self._attr_available = connected
+        self.async_write_ha_state()
+        if connected:
+            self._client.request_query(f"{self._prefix}?")
 
     @callback
     def _handle_message(self, message: str) -> None:
