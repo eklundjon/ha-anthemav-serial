@@ -5,6 +5,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 
@@ -16,6 +17,7 @@ from .const import (
     DEFAULT_BAUDRATE,
     DOMAIN,
 )
+from .device import processor_device_info
 from .router import MessageRouter
 
 _LOGGER = logging.getLogger(__name__)
@@ -103,6 +105,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             f"Could not connect to {entry.data[CONF_URL]}: {err}"
         ) from err
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = client
+    # Register the processor before forwarding platforms. The zone, tuner and
+    # headphone sub-devices all point `via_device` here, and the registry
+    # resolves that link only as each child is created — a parent that shows up
+    # later is never linked retroactively. Platforms are forwarded concurrently,
+    # so leaving the processor to be created as a side effect of whichever
+    # entity happens to carry its device_info first makes the topology a race.
+    dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id, **processor_device_info(entry)
+    )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     return True

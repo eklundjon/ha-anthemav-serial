@@ -23,6 +23,29 @@ async def test_processor_device_exists(hass, setup_integration):
     assert _device(hass) is not None
 
 
+async def test_processor_registered_without_any_platform(hass, config_entry, mock_client):
+    """The entry setup registers the processor itself, not as a side effect of
+    some entity's device_info.
+
+    `via_device` is resolved once, when the child is created; a parent that
+    appears later is never linked retroactively. Since the platforms that create
+    the sub-devices and the ones that carry the processor's own device_info are
+    forwarded concurrently, relying on an entity to bring the parent into
+    existence makes the topology a race. Setting up with no platforms at all
+    pins that down: the processor must exist regardless.
+    """
+    from unittest.mock import patch
+
+    with (
+        patch("custom_components.anthemav_serial.AnthemClient", return_value=mock_client),
+        patch("custom_components.anthemav_serial.PLATFORMS", []),
+    ):
+        await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert _device(hass) is not None
+
+
 async def test_subdevices_hang_off_processor(hass, setup_integration):
     processor = _device(hass)
     for suffix in ("zone1", "zone2", "zone3", "tuner", "headphone"):
