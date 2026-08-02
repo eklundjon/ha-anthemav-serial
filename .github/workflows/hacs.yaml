@@ -1,16 +1,24 @@
 name: Validate with HACS
 
 on:
+  # Scoped to main: `pull_request` already covers PR branches, and an
+  # unfiltered `push` made every workflow run twice per PR push.
   push:
+    branches: [main]
   pull_request:
   schedule:
     - cron: "0 0 * * *"
 
 jobs:
-  validate:
+  # `name` is the check context branch protection matches on, and it must be
+  # unique across workflows. Both this job and the hassfest one were called
+  # `validate` with no name, so they emitted the SAME context and could not be
+  # required independently.
+  hacs:
+    name: HACS validation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: hacs/action@main
         with:
           category: integration
