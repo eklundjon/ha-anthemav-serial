@@ -12,8 +12,8 @@ from homeassistant.components.media_player import (
     MediaType,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .client import AnthemClient
@@ -39,6 +39,7 @@ from .const import (
     cmd_volume,
     cmd_volume_down,
     cmd_volume_up,
+    connection_signal,
     message_signal,
 )
 from .device import tuner_device_info, zone_device_info
@@ -62,106 +63,14 @@ def _effective_sources(entry: ConfigEntry) -> dict[str, str]:
     }
 
 
-class MessageRouter:
-    """Routes raw device messages to the appropriate entity.
-
-    Extracted from async_setup_entry so it can be unit-tested directly
-    instead of only through client._on_message.
-    """
-
-    _ZONE_OFF = {"Main Off": ZONE_MAIN, "Zone2 Off": ZONE_2, "Zone3 Off": ZONE_3}
-
-    def __init__(
-        self,
-        zone_map: dict[int, AnthemZoneEntity],
-        tuner: AnthemTunerEntity,
-        client: AnthemClient,
-        all_entities: list[MediaPlayerEntity],
-        hass: HomeAssistant | None = None,
-        entry_id: str | None = None,
-    ) -> None:
-        self._zone_map = zone_map
-        self._tuner = tuner
-        self._client = client
-        self._all_entities = all_entities
-        self._hass = hass
-        self._signal = message_signal(entry_id) if entry_id else None
-
-    def dispatch(self, message: str) -> None:
-        _LOGGER.debug("RX: %r", message)
-        # Re-broadcast every raw message so other platforms (switch, …) can
-        # observe the device stream. Guarded so the router stays unit-testable
-        # without a hass instance.
-        if self._hass is not None and self._signal is not None:
-            async_dispatcher_send(self._hass, self._signal, message)
-        for zone, entity in self._zone_map.items():
-            if message.startswith(f"P{zone}"):
-                entity.handle_message(message)
-                self._tuner.notify_zone_source(zone, entity.source_id)
-                return
-        if message.startswith("H"):
-            # Headphone messages are handled by the number/switch platforms via
-            # the dispatcher broadcast above; nothing for the media_player to do.
-            _LOGGER.debug("Headphone message: %r", message)
-            return
-        if message.startswith("TAT") or message.startswith("TFT") or message.startswith("TH"):
-            self._tuner.handle_message(message)
-            return
-        if message.startswith("P4"):
-            _LOGGER.debug("Zone 4 (rec) message ignored: %r", message)
-            return
-        if re.match(r"^E\d+$", message):
-            _LOGGER.debug("Device error code: %s", message)
-            return
-        if message in self._ZONE_OFF:
-            self._zone_map[self._ZONE_OFF[message]].handle_message(message)
-            return
-        if message == "Unit Off":
-            _LOGGER.debug("Device status: %s", message)
-            return
-        if message in ("Invalid Command", "Parameter Out-of-range", "Already in use"):
-            # "Already in use" = the selected source's digital input is assigned
-            # to another source (input conflict); the command didn't fully apply.
-            _LOGGER.warning(
-                "Device returned %r (last sent: %r)", message, self._client.last_command
-            )
-            return
-        _LOGGER.warning("Unrouted message: %r", message)
-
-    def connection_lost(self) -> None:
-        _LOGGER.warning("Lost connection to Anthem device at %s", self._client.url)
-        for entity in self._all_entities:
-            entity.mark_unavailable()
-
-    def connection_restored(self) -> None:
-        # The device only pushes on change, so after a reconnect we must
-        # actively re-query each entity to repopulate state.
-        _LOGGER.info(
-            "Reconnected to Anthem device at %s; refreshing state", self._client.url
-        )
-        for entity in self._all_entities:
-            entity.request_refresh()
-
-
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     client: AnthemClient = hass.data[DOMAIN][entry.entry_id]
-
-    zone_entities = [AnthemZoneEntity(client, zone, entry) for zone in (ZONE_MAIN, ZONE_2, ZONE_3)]
-    zone_map = {e.zone: e for e in zone_entities}
-
-    tuner = AnthemTunerEntity(client, entry)
-    all_entities = [*zone_entities, tuner]
-
-    router = MessageRouter(zone_map, tuner, client, all_entities, hass, entry.entry_id)
-    client.set_handlers(
-        router.dispatch, router.connection_lost, router.connection_restored
-    )
-
-    async_add_entities(all_entities)
+    zones = [AnthemZoneEntity(client, zone, entry) for zone in (ZONE_MAIN, ZONE_2, ZONE_3)]
+    async_add_entities([*zones, AnthemTunerEntity(client, entry)])
 
 
 class AnthemZoneEntity(MediaPlayerEntity):
@@ -178,6 +87,10 @@ class AnthemZoneEntity(MediaPlayerEntity):
     def __init__(self, client: AnthemClient, zone: int, entry: ConfigEntry) -> None:
         self._client = client
         self.zone = zone
+        self._entry_id = entry.entry_id
+        self._zone_off_text = {
+            ZONE_MAIN: "Main Off", ZONE_2: "Zone2 Off", ZONE_3: "Zone3 Off"
+        }[zone]
         device_id = entry.data[CONF_ID]
         self._attr_name = None  # the zone IS its sub-device
         self._attr_unique_id = f"{device_id}_zone{zone}"
@@ -226,8 +139,35 @@ class AnthemZoneEntity(MediaPlayerEntity):
         ]
 
     async def async_added_to_hass(self) -> None:
-        """Request current state from the device on startup."""
+        """Subscribe to the device stream + connection signal, then query state."""
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, message_signal(self._entry_id), self._handle_dispatch
+            )
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, connection_signal(self._entry_id), self._handle_connection
+            )
+        )
         self.request_refresh()
+
+    @callback
+    def _handle_dispatch(self, message: str) -> None:
+        # The router broadcasts everything; act only on this zone's messages.
+        if (
+            message.startswith(f"P{self.zone}")
+            or message == self._zone_off_text
+            or message == "Unit Off"
+        ):
+            self.handle_message(message)
+
+    @callback
+    def _handle_connection(self, connected: bool) -> None:
+        if connected:
+            self.request_refresh()
+        else:
+            self.mark_unavailable()
 
     def request_refresh(self) -> None:
         """(Re)request current state. Called on startup and after a reconnect."""
@@ -281,10 +221,9 @@ class AnthemZoneEntity(MediaPlayerEntity):
         if self._owned_elsewhere.match(message):
             return
 
-        # Zone-off notification (e.g. "Main Off", "Zone2 Off") — device sends this
-        # instead of P{z}P0 in some contexts (e.g. response to P{z}? when zone is off).
-        _zone_off_msg = {1: "Main Off", 2: "Zone2 Off", 3: "Zone3 Off"}.get(z)
-        if message == _zone_off_msg:
+        # Zone-off notification ("Main Off"/… instead of P{z}P0 in some contexts,
+        # e.g. a query while the zone is off) or a whole-unit power-off.
+        if message in (self._zone_off_text, "Unit Off"):
             self._attr_state = MediaPlayerState.OFF
             self._attr_available = True
             changed = True
@@ -452,6 +391,11 @@ class AnthemZoneEntity(MediaPlayerEntity):
 
 
 _TUNER_SOURCE_ID = "4"
+# Messages that mean a zone stopped playing (so it's no longer on the tuner).
+_ZONE_POWER_OFF = {
+    "P1P0": ZONE_MAIN, "P2P0": ZONE_2, "P3P0": ZONE_3,
+    "Main Off": ZONE_MAIN, "Zone2 Off": ZONE_2, "Zone3 Off": ZONE_3,
+}
 
 
 class AnthemTunerEntity(MediaPlayerEntity):
@@ -467,6 +411,7 @@ class AnthemTunerEntity(MediaPlayerEntity):
 
     def __init__(self, client: AnthemClient, entry: ConfigEntry) -> None:
         self._client = client
+        self._entry_id = entry.entry_id
         device_id = entry.data[CONF_ID]
         self._attr_unique_id = f"{device_id}_tuner"
         self._attr_device_info = tuner_device_info(entry)
@@ -476,13 +421,24 @@ class AnthemTunerEntity(MediaPlayerEntity):
         self._zones_on_tuner: set[int] = set()
         self._attr_state = MediaPlayerState.IDLE
 
-    def notify_zone_source(self, zone: int, source_id: str | None) -> None:
-        """Called by on_message whenever a zone's source may have changed."""
-        if source_id == _TUNER_SOURCE_ID:
-            self._zones_on_tuner.add(zone)
+    def _note_zone_source(self, message: str) -> None:
+        """Track which zones have the tuner selected, from the broadcast stream.
+
+        The tuner is ON when any zone's source is the tuner (source 4).
+        """
+        on = self._zones_on_tuner
+        # Source select / combined status "P{z}S{x}…" or simulcast "P{z}X{a}{v}".
+        if m := re.match(r"^P([123])(?:S|X)([0-9c-j])", message):
+            zone, source = int(m.group(1)), m.group(2)
+            (on.add if source == _TUNER_SOURCE_ID else on.discard)(zone)
+        elif message in _ZONE_POWER_OFF:
+            on.discard(_ZONE_POWER_OFF[message])
+        elif message == "Unit Off":
+            on.clear()
         else:
-            self._zones_on_tuner.discard(zone)
-        new_state = MediaPlayerState.ON if self._zones_on_tuner else MediaPlayerState.IDLE
+            return
+
+        new_state = MediaPlayerState.ON if on else MediaPlayerState.IDLE
         changed = new_state != self._attr_state or not self._attr_available
         self._attr_available = True
         self._attr_state = new_state
@@ -496,7 +452,33 @@ class AnthemTunerEntity(MediaPlayerEntity):
     _TH_MODES = {"0": "Stereo", "1": "Hi-blend", "2": "Mono"}
 
     async def async_added_to_hass(self) -> None:
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, message_signal(self._entry_id), self._handle_dispatch
+            )
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, connection_signal(self._entry_id), self._handle_connection
+            )
+        )
         self.request_refresh()
+
+    @callback
+    def _handle_dispatch(self, message: str) -> None:
+        # The tuner's own freq/mode replies vs. the zone-source stream it tracks.
+        if message.startswith(("TAT", "TFT", "TH")):
+            self.handle_message(message)
+        else:
+            self._note_zone_source(message)
+
+    @callback
+    def _handle_connection(self, connected: bool) -> None:
+        if connected:
+            self.request_refresh()
+        else:
+            self._zones_on_tuner.clear()
+            self.mark_unavailable()
 
     def request_refresh(self) -> None:
         """(Re)query tuner mode. Called on startup and after a reconnect."""
@@ -520,6 +502,7 @@ class AnthemTunerEntity(MediaPlayerEntity):
             self._attr_available = True
         elif m := re.match(r"TH([012])$", message):
             self._tuner_mode = self._TH_MODES[m.group(1)]
+            self._attr_available = True
         else:
             _LOGGER.warning("Tuner: unrecognized message %r", message)
             return

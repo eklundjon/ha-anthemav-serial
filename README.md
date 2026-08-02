@@ -255,6 +255,8 @@ automation:
 
 Bug reports and pull requests are welcome. Please open an issue first for anything beyond a small fix.
 
+See [docs/architecture.md](docs/architecture.md) for how the integration is put together (the client, the message/connection router, and the dispatcher model) and [docs/protocol_analysis.md](docs/protocol_analysis.md) for the RS-232 command reference.
+
 When submitting a pull request, run the test suite locally before opening it:
 
 ```bash

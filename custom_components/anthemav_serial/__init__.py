@@ -16,6 +16,7 @@ from .const import (
     DEFAULT_BAUDRATE,
     DOMAIN,
 )
+from .router import MessageRouter
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -82,12 +83,15 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    # Handlers are wired by media_player.async_setup_entry via set_handlers()
-    # once the entities exist.
     client = AnthemClient(
         url=entry.data[CONF_URL],
         baudrate=entry.data[CONF_BAUDRATE],
     )
+    # Wire the message/connection handler before connecting and before forwarding
+    # platforms, so no entity's add-time query reply is lost — every platform
+    # subscribes to message_signal and self-filters.
+    router = MessageRouter(hass, client, entry.entry_id)
+    client.set_handlers(router.dispatch, router.connection_lost, router.connection_restored)
     try:
         await client.start()
     except (OSError, TimeoutError) as err:

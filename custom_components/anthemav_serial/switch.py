@@ -24,6 +24,7 @@ from .const import (
     cmd_panel_lock,
     cmd_tone_controls,
     cmd_trigger,
+    connection_signal,
     message_signal,
 )
 from .device import (
@@ -78,10 +79,24 @@ class _AnthemSwitchBase(SwitchEntity):
                 self.hass, message_signal(self._entry_id), self._handle_message
             )
         )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, connection_signal(self._entry_id), self._handle_connection
+            )
+        )
         await self._request_state()
 
     async def _request_state(self) -> None:
         """Send the query that elicits this switch's current state (if any)."""
+
+    @callback
+    def _handle_connection(self, connected: bool) -> None:
+        # Unavailable on a drop; on reconnect re-query (the reply then corrects
+        # availability for the zone-power-tracked switches).
+        self._attr_available = connected
+        self.async_write_ha_state()
+        if connected:
+            self.hass.async_create_task(self._request_state())
 
     @callback
     def _handle_message(self, message: str) -> None:
