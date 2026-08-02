@@ -41,20 +41,32 @@ jobs:
           # The declared minimum (hacs.json) and the latest. Each PHACC release
           # pins one exact Home Assistant version, so pinning PHACC pins HA.
           #
-          # The 2025.2 floor is not arbitrary: the config flow imports
-          # SOURCE_RECONFIGURE, which does not exist before HA 2024.4, and
-          # 2025.2 is the first release requiring Python 3.13 — so it is the
-          # oldest version this single-Python matrix can honestly claim.
+          # PYTHON VERSION IS PART OF THE PIN — do not collapse these onto one
+          # interpreter. Home Assistant moved to Python 3.14 in 2026.3, and PHACC
+          # followed exactly: 0.13.316 (HA 2026.2.3) declares Requires-Python
+          # >=3.13, while 0.13.317 (HA 2026.3.1) and everything after declares
+          # >=3.14. Pinning a post-2026.2 PHACC on 3.13 does not fail a test, it
+          # fails `pip install` with "No matching distribution found".
+          #
+          # So testing current HA requires 3.14. Capping the latest job at
+          # 0.13.316 to stay on 3.13 would freeze "latest" at February 2026 and
+          # silently stop testing every release after it.
+          #
+          # The 2025.2 floor is not arbitrary either: the config flow imports
+          # SOURCE_RECONFIGURE, which does not exist before HA 2024.4, and 2025.2
+          # is the first release requiring Python 3.13.
           - name: "HA 2025.2 (minimum)"
-            phacc: "0.13.215"   # Home Assistant 2025.2.5
+            phacc: "0.13.215"   # Home Assistant 2025.2.5 (needs Python >=3.13)
+            python: "3.13"
           - name: "HA latest"
-            phacc: "0.13.345"   # Home Assistant 2026.7.1 (a stable pin, not a beta)
+            phacc: "0.13.345"   # Home Assistant 2026.7.1, stable (needs Python >=3.14)
+            python: "3.14"
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python }}
           cache: pip
 
       - name: Install test dependencies
