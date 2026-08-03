@@ -45,11 +45,31 @@ async def _pick(hass, flow_id, step):
 
 
 async def _add_via(hass, step, fields, client):
-    """Drive an add: init -> menu -> pick `step` -> submit `fields`."""
-    with _patch_client(client):
+    """Drive an add: init -> menu -> pick `step` -> submit `fields`.
+
+    async_setup_entry is stubbed alongside the flow's client. A flow ending in
+    CREATE_ENTRY makes Home Assistant set the new entry up straight away, and
+    that path builds its own real AnthemClient which would dial MOCK_URL for
+    real — `_patch_client` only covers the client the *flow* constructs. These
+    tests assert on the flow result rather than on entities, so the setup is
+    stubbed out rather than mocked in depth.
+
+    block_till_done sits inside the patch on purpose: entry setup is scheduled,
+    so letting it run after the patch lifted would put the real client back and
+    fail the test at teardown with "the test opens sockets".
+    """
+    with (
+        _patch_client(client),
+        patch(
+            "custom_components.anthemav_serial.async_setup_entry",
+            AsyncMock(return_value=True),
+        ),
+    ):
         result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
         result = await _pick(hass, result["flow_id"], step)
-        return await hass.config_entries.flow.async_configure(result["flow_id"], fields)
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], fields)
+        await hass.async_block_till_done()
+        return result
 
 
 async def test_user_step_shows_menu(hass):
