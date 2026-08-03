@@ -119,6 +119,13 @@ async def setup_integration(hass, config_entry, mock_client, _enable_default_dis
 
     Patches asyncio.sleep so _async_query_extra_attrs returns immediately,
     avoiding multi-second delays in the test suite.
+
+    The patch stays active for the whole test (yield, not return). Setting
+    options fires the entry's update listener, which reloads the entry and runs
+    async_setup_entry again — if the patch had already exited, that second setup
+    would build a REAL AnthemClient and open a socket to MOCK_URL. Home
+    Assistant's test harness blocks that and fails the test at teardown with
+    "the test opens sockets".
     """
     from unittest.mock import patch
 
@@ -129,4 +136,4 @@ async def setup_integration(hass, config_entry, mock_client, _enable_default_dis
         await hass.config_entries.async_setup(config_entry.entry_id)
         await hass.async_block_till_done()
 
-    return config_entry, mock_client
+        yield config_entry, mock_client
