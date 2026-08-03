@@ -1,5 +1,26 @@
+# Test dependencies for the Anthem A/V serial integration.
+#
+# PHACC pins the exact Home Assistant version it was built against. CI pins a
+# specific PHACC per matrix job — the declared minimum and the latest — so this
+# file leaves it unpinned, which locally pulls the latest for a quick dev loop:
+#
+#     python -m venv .venv
+#     .venv/bin/pip install -r requirements.test.txt
+#     .venv/bin/python -m pytest
+#
 pytest
 pytest-asyncio
+pytest-cov
 pytest-homeassistant-custom-component
-ruff
+
+# Linter — pinned so local and CI agree. CI's lint job installs this exact pin
+# by reading this file rather than repeating the version, so the two cannot
+# drift apart, and a Dependabot bump updates CI in the same PR.
+ruff==0.15.20
+
+# The integration's own runtime requirement, mirrored from manifest.json so the
+# test environment can import the package. manifest.json is the source of truth
+# and deliberately allows a range (>=1.7.3,<2) — raise it there first, then
+# mirror it here. (Dependabot is told to ignore routine bumps of this pin for
+# exactly that reason; see .github/dependabot.yml.)
 serialx==1.7.3
