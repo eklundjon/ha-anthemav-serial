@@ -1,0 +1,59 @@
+version: 2
+
+# Dependency update PRs. Security *alerts* work off the dependency graph and
+# don't need this file — this is only about routine version bumps.
+#
+# Mirrors ha-haikubox / ha-birdweather.
+updates:
+  # GitHub Actions used by the workflows in .github/workflows/.
+  # Worth having: two of them (hacs/action@main, home-assistant/actions/hassfest@master)
+  # deliberately track moving branches per their vendors' documented usage, so
+  # this at least keeps the pinned ones (actions/checkout, actions/setup-python)
+  # current and visible.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Python test dependencies (requirements.test.txt).
+  #
+  # PHACC is deliberately unpinned there (it is pinned per-job in test.yaml
+  # instead), so in practice Dependabot's useful target here is the ruff pin —
+  # which the lint job reads straight out of requirements.test.txt, so a bump
+  # updates CI in the same PR.
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+    groups:
+      python:
+        patterns: ["*"]
+    ignore:
+      # serialx appears in requirements.test.txt only to MIRROR manifest.json's
+      # runtime requirement — the manifest is the source of truth and
+      # deliberately allows a range (>=1.7.3,<2). Letting Dependabot raise the
+      # test pin would mean testing against a floor we don't ship, the same
+      # fidelity problem the HA version matrix exists to avoid. Raise it in
+      # manifest.json first, deliberately, then mirror it across.
+      #
+      # The update-types list is deliberate and must NOT be collapsed to a bare
+      # `- dependency-name: serialx`. An unqualified ignore also suppresses
+      # SECURITY update PRs ("Setting this option will also affect pull requests
+      # for security updates", per Dependabot's options reference), which would
+      # silently opt this dependency out of automated vulnerability fixes.
+      # Naming the three version-update types confines the ignore to routine
+      # bumps, so a security fix for serialx still opens a PR.
+      - dependency-name: serialx
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
