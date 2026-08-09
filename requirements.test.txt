@@ -16,7 +16,7 @@ pytest-homeassistant-custom-component
 # Linter — pinned so local and CI agree. CI's lint job installs this exact pin
 # by reading this file rather than repeating the version, so the two cannot
 # drift apart, and a Dependabot bump updates CI in the same PR.
-ruff==0.15.20
+ruff==0.16.1
 
 # The integration's own runtime requirement, mirrored from manifest.json so the
 # test environment can import the package. manifest.json is the source of truth
